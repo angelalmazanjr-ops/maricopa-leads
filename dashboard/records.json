@@ -1,7 +1,10 @@
 {
-  "fetched_at": null,
+  "fetched_at": "2026-05-17T20:25:47.707570+00:00",
   "source": "Maricopa County Clerk of Court",
-  "date_range": {"from": null, "to": null},
+  "date_range": {
+    "from": "2026-05-10",
+    "to": "2026-05-17"
+  },
   "total": 0,
   "with_address": 0,
   "records": []
