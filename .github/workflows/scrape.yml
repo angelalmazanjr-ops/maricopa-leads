@@ -15,8 +15,10 @@ jobs:
     name: Scrape & Publish Leads
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout repository
+ - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          path: .
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
