@@ -15,33 +15,20 @@ jobs:
     name: Scrape & Publish Leads
     runs-on: ubuntu-22.04
     steps:
- - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          path: .
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Python dependencies
-        run: pip install requests beautifulsoup4 lxml dbfread
-      - name: Run scraper
-        working-directory: ${{ github.workspace }}
-        run: python scraper/fetch.py
+      - run: pip install requests beautifulsoup4 lxml dbfread
+      - run: python scraper/fetch.py
         env:
           PYTHONUNBUFFERED: "1"
-      - name: Commit records.json
-        run: |
+      - run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main || true
           git add dashboard/records.json data/records.json data/*.csv || true
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "chore: update leads $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            git push
-          fi
+          if git diff --cached --quiet; then echo "no changes"; else git commit -m "update leads" && git push; fi
   deploy-pages:
     name: Deploy Dashboard to GitHub Pages
     needs: scrape
@@ -50,16 +37,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: main
-      - name: Setup GitHub Pages
-        uses: actions/configure-pages@v5
-      - name: Upload dashboard artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: dashboard/
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - id: deployment
         uses: actions/deploy-pages@v4
