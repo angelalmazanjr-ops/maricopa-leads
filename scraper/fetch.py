@@ -129,10 +129,9 @@ def scrape_all(dfrom, dto):
             time.sleep(3)
             
             driver.execute_script(f"""
-                document.querySelector('input[id*="datepicker_dateInput"]').value = '{dfrom}';
-                document.querySelector('input[id*="datepicker_dateInput2"]').value = '{dto}';
+                document.getElementById('ctl00_ContentPlaceHolder1_datepicker_dateInput').value = '{dfrom}';
+                document.getElementById('ctl00_ContentPlaceHolder1_datepickerEnd_dateInput').value = '{dto}';
             """)
-            
             from selenium.webdriver.support.ui import Select
             sel = Select(driver.find_element(By.NAME, "ctl00$ContentPlaceHolder1$DocTypeList"))
             sel.select_by_value(url_code)
