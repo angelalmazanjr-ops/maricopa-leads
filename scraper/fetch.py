@@ -133,7 +133,7 @@ def scrape_all(dfrom, dto):
                 document.getElementById('ctl00_ContentPlaceHolder1_datepickerEnd_dateInput').value = '{dto}';
             """)
             from selenium.webdriver.support.ui import Select
-            sel = Select(driver.find_element(By.NAME, "ctl00$ContentPlaceHolder1$DocTypeList"))
+            sel = Select(driver.find_element(By.NAME, "ctl00$ContentPlaceHolder1$ddlDocCodes"))
             sel.select_by_value(url_code)
             
             # Submit
