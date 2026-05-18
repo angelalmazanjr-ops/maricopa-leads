@@ -201,7 +201,7 @@ def export_csv(records, dto):
 
 def main():
     today=datetime.now().date()
-    dto=today.strftime("%m/%d/%Y"); dfrom=(today-timedelta(days=7)).strftime("%m/%d/%Y")
+    dto=today.strftime("%m/%d/%y"); dfrom=(today-timedelta(days=7)).strftime("%m/%d/%y")
     dto_iso=today.strftime("%Y-%m-%d"); dfrom_iso=(today-timedelta(days=7)).strftime("%Y-%m-%d")
     log.info("Maricopa Motivated Seller Scraper")
     raw=scrape_all(dfrom,dto)
