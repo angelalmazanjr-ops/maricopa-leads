@@ -77,7 +77,7 @@ def parse_page(soup, code, label):
     records = []
     table = next((t for t in soup.find_all("table") if "RECORDING NUMBER" in t.get_text("|").upper()), None)
     if not table: return records 
-        log.info(f"Table found: {table is not None}, first link: {table.find('a')['href'] if table and table.find('a') else 'none'}")
+    log.info(f"Table found: {table is not None}, first link: {table.find('a')['href'] if table and table.find('a') else 'none'}")
     for row in table.find_all("tr")[1:]:
         cells = row.find_all("td")
         if len(cells) < 2: continue
