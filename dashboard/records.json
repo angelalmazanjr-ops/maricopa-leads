@@ -1,9 +1,9 @@
 {
-  "fetched_at": "2026-05-17T20:25:47.707570+00:00",
-  "source": "Maricopa County Clerk of Court",
+  "fetched_at": "2026-05-18T01:39:13.909992+00:00",
+  "source": "Maricopa County Recorder",
   "date_range": {
-    "from": "2026-05-10",
-    "to": "2026-05-17"
+    "from": "2026-05-11",
+    "to": "2026-05-18"
   },
   "total": 0,
   "with_address": 0,
