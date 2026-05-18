@@ -1,4 +1,4 @@
-import csv, json, logging, re, sys, time
+import csv, json, logging, os, re, sys, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import requests
@@ -42,7 +42,9 @@ def make_session():
 def build_url(code, dfrom, dto, start=0):
     b = dfrom.replace("/", "%2F")
     e = dto.replace("/", "%2F")
-    return f"{RECORDER_SEARCH}?rec={start}&suf=&nm=&bdt={b}&edt={e}&cde={code}max=20&res=True&doc1={code}&doc2=&doc3=&doc4=&doc5="
+  url = f"{RECORDER_SEARCH}?rec={start}&suf=&nm=&bdt={b}&edt={e}&cde={code}&max=20&res=True&doc1={code}&doc2=&doc3=&doc4=&doc5="
+    api_key = os.environ.get("SCRAPER_API_KEY", "")
+    return f"http://api.scraperapi.com?api_key={api_key}&url={url}" if api_key else url
 
 def fetch_page(session, url):
     for i in range(3):
