@@ -44,7 +44,7 @@ def build_url(code, dfrom, dto, start=0):
     e = dto.replace("/", "%2F")
     url = f"{RECORDER_SEARCH}?rec={start}&suf=&nm=&bdt={b}&edt={e}&cde={code}&max=20&res=True&doc1={code}&doc2=&doc3=&doc4=&doc5="
     api_key = os.environ.get("SCRAPER_API_KEY", "")
-return f"http://api.scraperapi.com?api_key={api_key}&url={url}&render=true" if api_key else url
+    return f"http://api.scraperapi.com?api_key={api_key}&url={url}&render=true" if api_key else url
 
 def fetch_page(session, url):
     for i in range(3):
