@@ -43,7 +43,7 @@ def build_url(code, dfrom, dto, start=0):
     b = dfrom.replace("/", "%2F")
     e = dto.replace("/", "%2F")
     url = f"{RECORDER_SEARCH}?rec={start}&suf=&nm=&bdt={b}&edt={e}&cde={code}&max=20&res=True&doc1={code}&doc2=&doc3=&doc4=&doc5="
-return url
+    return url
 
 def fetch_page(session, url):
     for i in range(3):
