@@ -15,7 +15,7 @@ jobs:
     name: Scrape & Publish Leads
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout repository
+ - name: Checkout repository
         uses: actions/checkout@v4
         with:
           path: .
@@ -26,6 +26,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install requests beautifulsoup4 lxml dbfread
       - name: Run scraper
+        working-directory: ${{ github.workspace }}
         run: python scraper/fetch.py
         env:
           PYTHONUNBUFFERED: "1"
