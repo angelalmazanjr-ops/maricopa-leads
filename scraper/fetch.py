@@ -75,6 +75,7 @@ def fetch_page(driver, url):
 
 def parse_page(soup, code, label):
     records = []
+    log.info(f"Tables found: {len(soup.find_all('table'))}, text sample: {soup.get_text()[:300]}")
     table = next((t for t in soup.find_all("table") if "RECORDING NUMBER" in t.get_text("|").upper()), None)
     if not table: return records
     for row in table.find_all("tr")[1:]:
