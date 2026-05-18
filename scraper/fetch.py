@@ -75,9 +75,9 @@ def fetch_page(driver, url):
 
 def parse_page(soup, code, label):
     records = []
-    log.info(f"Tables found: {len(soup.find_all('table'))}, text sample: {soup.get_text()[:300]}")
     table = next((t for t in soup.find_all("table") if "RECORDING NUMBER" in t.get_text("|").upper()), None)
-    if not table: return records
+    if not table: return records 
+        log.info(f"Table found: {table is not None}, first link: {table.find('a')['href'] if table and table.find('a') else 'none'}")
     for row in table.find_all("tr")[1:]:
         cells = row.find_all("td")
         if len(cells) < 2: continue
@@ -88,9 +88,14 @@ def parse_page(soup, code, label):
             link = cells[0].find("a")
             if link and link.get("href"):
                 href = link["href"]
-                url = href if href.startswith("http") else RECORDER_BASE + "/" + href.lstrip("/")
+                if href.startswith("http"):
+                    url = href
+                elif href.startswith("/"):
+                    url = "https://legacy.recorder.maricopa.gov" + href
+                else:
+                    url = "https://legacy.recorder.maricopa.gov/recdocdata/" + href
             else:
-                url = f"{RECORDER_BASE}/GetRecordedDocData.aspx?rec={re.sub(r'[^0-9]','',num)}"
+                url = f"https://legacy.recorder.maricopa.gov/recdocdata/GetRecordedDocData.aspx?rec={re.sub(r'[^0-9]','',num)}"
             if not num: continue
             records.append({"doc_num":num,"doc_type":raw or code,"cat":code,"cat_label":label,
                 "filed":_nd(date),"owner":"","grantee":"","legal":"","amount":None,"clerk_url":url,
