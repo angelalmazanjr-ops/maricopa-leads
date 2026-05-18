@@ -1,1 +1,48 @@
-print("hello")
+name: Scrape Maricopa Motivated Seller Leads
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+jobs:
+  scrape:
+    name: Scrape & Publish Leads
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests beautifulsoup4 lxml dbfread
+      - run: python scraper/fetch.py
+        env:
+          PYTHONUNBUFFERED: "1"
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main || true
+          git add dashboard/records.json data/records.json data/*.csv || true
+          if git diff --cached --quiet; then echo "no changes"; else git commit -m "update leads" && git push; fi
+  deploy-pages:
+    name: Deploy Dashboard to GitHub Pages
+    needs: scrape
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dashboard/
+      - id: deployment
+        uses: actions/deploy-pages@v4
