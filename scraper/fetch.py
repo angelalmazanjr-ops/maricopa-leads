@@ -51,7 +51,10 @@ def fetch_page(session, url):
         try:
             api_key = os.environ.get("SCRAPER_API_KEY", "")
             if api_key:
-                r = requests.get(url, timeout=60)
+                base = f"http://api.scraperapi.com?api_key={api_key}&url=https://legacy.recorder.maricopa.gov/recdocdata/"
+                s = requests.Session()
+                s.get(base, timeout=60)
+                r = s.get(url, timeout=60)
             else:
                 r = session.get(url, timeout=60)
             r.raise_for_status()
