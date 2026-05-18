@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install requests beautifulsoup4 lxml dbfread
-      - run: python ${{ github.workspace }}/scraper/fetch.py
+     - run: python scraper/fetch.py
         env:
           PYTHONUNBUFFERED: "1"
       - run: |
