@@ -49,14 +49,19 @@ def build_url(code, dfrom, dto, start=0):
 def fetch_page(session, url):
     for i in range(3):
         try:
-            r = session.get(url, timeout=60)
+            api_key = os.environ.get("SCRAPER_API_KEY", "")
+            if api_key:
+                r = requests.get(url, timeout=60)
+            else:
+                r = session.get(url, timeout=60)
             r.raise_for_status()
-            log.info(f"Response length: {len(r.text)}, snippet: {r.text[:500]}") 
+            log.info(f"Response length: {len(r.text)}, snippet: {r.text[:500]}")
             return BeautifulSoup(r.text, "lxml")
         except Exception as e:
             log.warning(f"Attempt {i+1}: {e}")
             time.sleep(5)
     return None
+
 
 def parse_page(soup, code, label):
     records = []
