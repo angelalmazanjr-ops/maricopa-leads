@@ -137,7 +137,7 @@ def scrape_all(dfrom, dto):
             sel.select_by_value(url_code)
             
             # Submit
-            driver.find_element(By.CSS_SELECTOR, "input[type=submit]").click()
+            driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
             time.sleep(8)
             
             soup = BeautifulSoup(driver.page_source, "lxml")
