@@ -51,7 +51,8 @@ def fetch_page(session, url):
         try:
             r = session.get(url, timeout=60)
             r.raise_for_status()
-            log.debug(f"Response length: {len(r.text)}, snippet: {r.text[:500]}") return BeautifulSoup(r.text, "lxml")
+            log.debug(f"Response length: {len(r.text)}, snippet: {r.text[:500]}") 
+            return BeautifulSoup(r.text, "lxml")
         except Exception as e:
             log.warning(f"Attempt {i+1}: {e}")
             time.sleep(5)
