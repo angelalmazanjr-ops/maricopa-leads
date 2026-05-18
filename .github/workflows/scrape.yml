@@ -1,19 +1,15 @@
 name: Scrape Maricopa Motivated Seller Leads
-
 on:
   schedule:
     - cron: "0 7 * * *"
   workflow_dispatch:
-
 permissions:
   contents: write
   pages: write
   id-token: write
-
 concurrency:
   group: scrape
   cancel-in-progress: false
-
 jobs:
   scrape:
     name: Scrape & Publish Leads
@@ -21,21 +17,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install Python dependencies
         run: pip install requests beautifulsoup4 lxml dbfread
-
-     - name: Run scraper
+      - name: Run scraper
         working-directory: ${{ github.workspace }}
         run: python scraper/fetch.py
         env:
           PYTHONUNBUFFERED: "1"
-
       - name: Commit records.json
         run: |
           git config user.name "github-actions[bot]"
@@ -48,7 +40,6 @@ jobs:
             git commit -m "chore: update leads $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             git push
           fi
-
   deploy-pages:
     name: Deploy Dashboard to GitHub Pages
     needs: scrape
@@ -61,15 +52,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
-
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
-
       - name: Upload dashboard artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: dashboard/
-
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
