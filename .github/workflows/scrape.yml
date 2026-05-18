@@ -28,17 +28,14 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python dependencies
-        run: pip install requests beautifulsoup4 lxml dbfread playwright
-
-      - name: Install Playwright browsers
-        run: python -m playwright install --with-deps chromium
+        run: pip install requests beautifulsoup4 lxml dbfread
 
       - name: Run scraper
         run: python scraper/fetch.py
         env:
           PYTHONUNBUFFERED: "1"
 
-     - name: Commit records.json
+      - name: Commit records.json
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
