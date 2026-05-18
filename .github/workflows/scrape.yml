@@ -30,7 +30,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install requests beautifulsoup4 lxml dbfread
 
-     - name: Run scraper
+      - name: Run scraper
         run: |
           cd $GITHUB_WORKSPACE
           python scraper/fetch.py
