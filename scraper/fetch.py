@@ -83,9 +83,9 @@ def parse_page(soup, code, label):
         if len(cells) < 2: continue
         try:
             num = cells[0].get_text(strip=True)
-            date = cells[1].get_text(strip=True) if len(cells) > 1 else ""
-            owner = cells[2].get_text(strip=True) if len(cells) > 2 else ""
-            raw = cells[3].get_text(strip=True) if len(cells) > 3 else ""
+            raw = cells[1].get_text(strip=True) if len(cells) > 1 else ""
+            date = cells[2].get_text(strip=True) if len(cells) > 2 else ""
+            owner = cells[3].get_text(strip=True) if len(cells) > 3 else ""
             link = cells[0].find("a")
             if link and link.get("href"):
                 href = link["href"]
