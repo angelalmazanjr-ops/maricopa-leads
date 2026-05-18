@@ -84,7 +84,8 @@ def parse_page(soup, code, label):
         try:
             num = cells[0].get_text(strip=True)
             date = cells[1].get_text(strip=True) if len(cells) > 1 else ""
-            raw = cells[2].get_text(strip=True) if len(cells) > 2 else ""
+            owner = cells[2].get_text(strip=True) if len(cells) > 2 else ""
+            raw = cells[3].get_text(strip=True) if len(cells) > 3 else ""
             link = cells[0].find("a")
             if link and link.get("href"):
                 href = link["href"]
@@ -98,7 +99,7 @@ def parse_page(soup, code, label):
                 url = f"https://legacy.recorder.maricopa.gov/recdocdata/GetRecordedDocData.aspx?rec={re.sub(r'[^0-9]','',num)}"
             if not num: continue
             records.append({"doc_num":num,"doc_type":raw or code,"cat":code,"cat_label":label,
-                "filed":_nd(date),"owner":"","grantee":"","legal":"","amount":None,"clerk_url":url,
+                "filed":_nd(date),"owner":owner,"grantee":"","legal":"","amount":None,"clerk_url":url,
                 "prop_address":"","prop_city":"","prop_state":"AZ","prop_zip":"",
                 "mail_address":"","mail_city":"","mail_state":"AZ","mail_zip":""})
         except Exception as e: log.debug(f"Row: {e}")
@@ -148,9 +149,6 @@ def scrape_all(dfrom, dto):
             soup = BeautifulSoup(driver.page_source, "lxml")
             batch = parse_page(soup, code, label)
             if batch:
-                for rec in batch:
-                    try: rec.update(fetch_detail(driver, rec["clerk_url"])); time.sleep(0.3)
-                    except Exception: pass
                 all_r.extend(batch)
                 log.info(f"  {len(batch)} records")
         except Exception as e:
