@@ -128,7 +128,7 @@ def scrape_all(dfrom, dto):
             driver.get(RECORDER_BASE)
             time.sleep(3)
             
-           driver.execute_script(f"""
+            driver.execute_script(f"""
                 document.querySelector('input[id*="datepicker_dateInput"]').value = '{dfrom}';
                 document.querySelector('input[id*="datepicker_dateInput2"]').value = '{dto}';
             """)
