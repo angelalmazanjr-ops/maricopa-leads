@@ -128,15 +128,13 @@ def scrape_all(dfrom, dto):
             driver.get(RECORDER_BASE)
             time.sleep(3)
             
-            # Fill in the form
-            driver.find_element(By.NAME, "RecordDateFrom").clear()
-            driver.find_element(By.NAME, "RecordDateFrom").send_keys(dfrom)
-            driver.find_element(By.NAME, "RecordDateTo").clear()
-            driver.find_element(By.NAME, "RecordDateTo").send_keys(dto)
+           driver.execute_script(f"""
+                document.querySelector('input[id*="datepicker_dateInput"]').value = '{dfrom}';
+                document.querySelector('input[id*="datepicker_dateInput2"]').value = '{dto}';
+            """)
             
-            # Select document type
             from selenium.webdriver.support.ui import Select
-            sel = Select(driver.find_element(By.NAME, "DocTypeCode"))
+            sel = Select(driver.find_element(By.NAME, "ctl00$ContentPlaceHolder1$DocTypeList"))
             sel.select_by_value(url_code)
             
             # Submit
