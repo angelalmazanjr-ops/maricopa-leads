@@ -20,16 +20,16 @@ DATA_JSON = REPO_ROOT / "data" / "records.json"
 
 LEAD_TYPES = {
     "LP": ("LP", "Lis Pendens"),
-    "NOFC": ("NOFC", "Notice of Foreclosure"),
-    "TAXDEED": ("TAXD", "Tax Deed"),
-    "JUD": ("JUD", "Judgment"),
-    "LNFED": ("FEDTL", "Federal Tax Lien"),
-    "LNSTATE": ("STTL", "State Tax Lien"),
-    "LN": ("LIEN", "Lien"),
-    "LNMECH": ("MECH", "Mechanic Lien"),
-    "MEDLN": ("MEDN", "Medical Lien"),
-    "PRO": ("PROB", "Probate"),
-    "RELLP": ("RLLP", "Release Lis Pendens"),
+    "NOFC": ("NS", "Notice of Trustees Sale"),
+    "TAXDEED": ("XD", "Tax Deed"),
+    "JUD": ("JG", "Judgment"),
+    "LNFED": ("FL", "Federal Tax Lien"),
+    "LNSTATE": ("SL", "State Tax Lien"),
+    "LN": ("LN", "Liens"),
+    "LNMECH": ("ML", "Mechanic Lien"),
+    "MEDLN": ("HL", "Medical Lien"),
+    "PRO": ("PJ", "Probate"),
+    "RELLP": ("LR", "Marginal Release of Lis Pendens"),
 }
 
 HEADERS = {
