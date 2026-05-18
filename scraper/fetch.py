@@ -63,7 +63,7 @@ def fetch_page(driver, url):
             WebDriverWait(driver, 30).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
-            time.sleep(2)
+            time.sleep(8)
             html = driver.page_source
             log.info(f"Response length: {len(html)}")
             return BeautifulSoup(html, "lxml")
