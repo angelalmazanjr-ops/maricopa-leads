@@ -120,27 +120,39 @@ def fetch_detail(driver, url):
 
 def scrape_all(dfrom, dto):
     driver = make_driver()
-    # Visit base page first to establish session
-    driver.get(RECORDER_BASE)
-    time.sleep(3)
     all_r = []
     for code, (url_code, label) in LEAD_TYPES.items():
         log.info(f"Searching: {label}")
         try:
-            start = 0
-            while True:
-                soup = fetch_page(driver, build_url(url_code, dfrom, dto, start))
-                if not soup: break
-                batch = parse_page(soup, code, label)
-                if not batch: break
+            # Visit the search form and submit it
+            driver.get(RECORDER_BASE)
+            time.sleep(3)
+            
+            # Fill in the form
+            driver.find_element(By.NAME, "RecordDateFrom").clear()
+            driver.find_element(By.NAME, "RecordDateFrom").send_keys(dfrom)
+            driver.find_element(By.NAME, "RecordDateTo").clear()
+            driver.find_element(By.NAME, "RecordDateTo").send_keys(dto)
+            
+            # Select document type
+            from selenium.webdriver.support.ui import Select
+            sel = Select(driver.find_element(By.NAME, "DocTypeCode"))
+            sel.select_by_value(url_code)
+            
+            # Submit
+            driver.find_element(By.CSS_SELECTOR, "input[type=submit]").click()
+            time.sleep(8)
+            
+            soup = BeautifulSoup(driver.page_source, "lxml")
+            batch = parse_page(soup, code, label)
+            if batch:
                 for rec in batch:
                     try: rec.update(fetch_detail(driver, rec["clerk_url"])); time.sleep(0.3)
                     except Exception: pass
                 all_r.extend(batch)
                 log.info(f"  {len(batch)} records")
-                if len(batch) >= 100: start += 100; time.sleep(1)
-                else: break
-        except Exception as e: log.error(f"Score: {e}")
+        except Exception as e:
+            log.error(f"Error on {label}: {e}")
     driver.quit()
     return all_r
 
