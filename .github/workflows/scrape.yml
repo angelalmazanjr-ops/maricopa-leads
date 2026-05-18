@@ -31,7 +31,9 @@ jobs:
         run: pip install requests beautifulsoup4 lxml dbfread
 
       - name: Run scraper
-        run: python scraper/fetch.py
+        run: |
+          ls -la scraper/
+          python scraper/fetch.py
         env:
           PYTHONUNBUFFERED: "1"
 
