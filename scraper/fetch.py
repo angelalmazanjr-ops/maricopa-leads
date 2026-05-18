@@ -43,18 +43,18 @@ def build_url(code, dfrom, dto, start=0):
     b = dfrom.replace("/", "%2F")
     e = dto.replace("/", "%2F")
     url = f"{RECORDER_SEARCH}?rec={start}&suf=&nm=&bdt={b}&edt={e}&cde={code}&max=20&res=True&doc1={code}&doc2=&doc3=&doc4=&doc5="
-    api_key = os.environ.get("SCRAPER_API_KEY", "")
-    return f"http://api.scraperapi.com?api_key={api_key}&url={url}" if api_key else url
+return url
 
 def fetch_page(session, url):
     for i in range(3):
         try:
             api_key = os.environ.get("SCRAPER_API_KEY", "")
             if api_key:
-                base = f"http://api.scraperapi.com?api_key={api_key}&url=https://legacy.recorder.maricopa.gov/recdocdata/"
-                s = requests.Session()
-                s.get(base, timeout=60)
-                r = s.get(url, timeout=60)
+                proxies = {
+                    "http": f"http://scraperapi:{api_key}@proxy-server.scraperapi.com:8001",
+                    "https": f"http://scraperapi:{api_key}@proxy-server.scraperapi.com:8001"
+                }
+                r = session.get(url, proxies=proxies, verify=False, timeout=60)
             else:
                 r = session.get(url, timeout=60)
             r.raise_for_status()
