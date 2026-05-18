@@ -30,10 +30,9 @@ jobs:
       - name: Install Python dependencies
         run: pip install requests beautifulsoup4 lxml dbfread
 
-      - name: Run scraper
-        run: |
-          cd $GITHUB_WORKSPACE
-          python scraper/fetch.py
+     - name: Run scraper
+        working-directory: ${{ github.workspace }}
+        run: python scraper/fetch.py
         env:
           PYTHONUNBUFFERED: "1"
 
