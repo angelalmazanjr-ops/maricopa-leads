@@ -127,17 +127,27 @@ def fetch_detail(driver, url):
 def scrape_all(dfrom, dto):
     driver = make_driver()
     all_r = []
+    
+    # Establish session by submitting form once
+    driver.get(RECORDER_BASE)
+    time.sleep(5)
+    from selenium.webdriver.support.ui import Select
+    date_from = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_datepicker_dateInput")
+    date_from.clear()
+    date_from.send_keys(dfrom)
+    date_to = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_datepickerEnd_dateInput")
+    date_to.clear()
+    date_to.send_keys(dto)
+    driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
+    time.sleep(8)
+    
     for code, (url_code, label) in LEAD_TYPES.items():
         log.info(f"Searching: {label}")
         try:
-            # Visit the search form and submit it
-            driver.get(RECORDER_BASE)
-            time.sleep(5)
             url = build_url(url_code, dfrom, dto, 0)
             driver.get(url)
             time.sleep(5)
             soup = BeautifulSoup(driver.page_source, "lxml")
-            
             batch = parse_page(soup, code, label)
             if batch:
                 all_r.extend(batch)
