@@ -141,12 +141,14 @@ def scrape_all(dfrom, dto):
     driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
     time.sleep(8)
     
-    for code, (url_code, label) in LEAD_TYPES.items():
+for code, (url_code, label) in LEAD_TYPES.items():
         log.info(f"Searching: {label}")
         try:
-            url = build_url(url_code, dfrom, dto, 0)
-            driver.get(url)
-            time.sleep(5)
+            from selenium.webdriver.support.ui import Select
+            sel = Select(driver.find_element(By.NAME, "ctl00$ContentPlaceHolder1$ddlDocCodes"))
+            sel.select_by_value(url_code)
+            driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
+            time.sleep(8)
             soup = BeautifulSoup(driver.page_source, "lxml")
             batch = parse_page(soup, code, label)
             if batch:
@@ -154,8 +156,6 @@ def scrape_all(dfrom, dto):
                 log.info(f"  {len(batch)} records")
         except Exception as e:
             log.error(f"Error on {label}: {e}")
-    driver.quit()
-    return all_r
 
 
 def score(rec, all_r):
