@@ -133,20 +133,8 @@ def scrape_all(dfrom, dto):
             # Visit the search form and submit it
             driver.get(RECORDER_BASE)
             time.sleep(3)
-            
-            driver.execute_script(f"""
-                document.getElementById('ctl00_ContentPlaceHolder1_datepicker_dateInput').value = '{dfrom}';
-                document.getElementById('ctl00_ContentPlaceHolder1_datepickerEnd_dateInput').value = '{dto}';
-            """)
-            from selenium.webdriver.support.ui import Select
-            sel = Select(driver.find_element(By.NAME, "ctl00$ContentPlaceHolder1$ddlDocCodes"))
-            sel.select_by_value(url_code)
-            
-            # Submit
-            driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
-            time.sleep(8)
-            
-            soup = BeautifulSoup(driver.page_source, "lxml")
+            url = build_url(url_code, dfrom, dto, 0)
+            soup = fetch_page(driver, url)
             batch = parse_page(soup, code, label)
             if batch:
                 all_r.extend(batch)
