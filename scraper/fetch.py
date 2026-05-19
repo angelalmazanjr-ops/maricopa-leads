@@ -73,35 +73,28 @@ def fetch_page(driver, url):
     return None
 
 
-def parse_page(soup, code, label):
+def parse_page(html, code):
     records = []
+    soup = BeautifulSoup(html, "lxml")
     table = next((t for t in soup.find_all("table") if "RECORDING NUMBER" in t.get_text("|").upper()), None)
-    if not table: return records 
-    log.info(f"Table found: {table is not None}, first link: {table.find('a')['href'] if table and table.find('a') else 'none'}")
+    if not table: return records
     for row in table.find_all("tr")[1:]:
         cells = row.find_all("td")
-        if len(cells) < 2: continue
+        if len(cells) < 3: continue
         try:
             num = cells[0].get_text(strip=True)
-            date = cells[1].get_text(strip=True) if len(cells) > 1 else ""
-            raw = cells[2].get_text(strip=True) if len(cells) > 2 else ""
-            owner = ""
+            date = cells[1].get_text(strip=True)
+            doc_type = cells[2].get_text(strip=True)
             link = cells[0].find("a")
-            if link and link.get("href"):
-                href = link["href"]
-                if href.startswith("http"):
-                    url = href
-                elif href.startswith("/"):
-                    url = "https://legacy.recorder.maricopa.gov" + href
-                else:
-                    url = "https://legacy.recorder.maricopa.gov/recdocdata/" + href
-            else:
-                url = f"https://legacy.recorder.maricopa.gov/recdocdata/GetRecordedDocData.aspx?rec={re.sub(r'[^0-9]','',num)}"
+            url = link["href"] if link and link.get("href") else ""
+            if url.startswith("/"):
+                url = "https://recorder.maricopa.gov" + url
             if not num: continue
-            records.append({"doc_num":num,"doc_type":raw or code,"cat":code,"cat_label":label,
-                "filed":_nd(date),"owner":"","grantee":"","legal":"","amount":None,"clerk_url":url,
-                "prop_address":"","prop_city":"","prop_state":"AZ","prop_zip":"",
-                "mail_address":"","mail_city":"","mail_state":"AZ","mail_zip":""})
+            records.append({"doc_num": num, "doc_type": doc_type, "cat": code,
+                "filed": date, "owner": "", "grantee": "", "legal": "",
+                "amount": None, "clerk_url": url, "prop_address": "",
+                "prop_city": "", "prop_state": "AZ", "prop_zip": "",
+                "mail_address": "", "mail_city": "", "mail_state": "AZ", "mail_zip": ""})
         except Exception as e: log.debug(f"Row: {e}")
     return records
 
@@ -141,7 +134,7 @@ def scrape_all(dfrom, dto):
             driver.find_element(By.ID, "endDateInput").send_keys(dto)
             driver.find_element(By.CSS_SELECTOR, "button[type=submit]").click()
             time.sleep(5)
-            results = parse_page(driver.page_source)
+            results = parse_page(driver.page_source, code)
             all_results.extend(results)
         except Exception as e:
             print(f"Error on code {code}: {e}")
