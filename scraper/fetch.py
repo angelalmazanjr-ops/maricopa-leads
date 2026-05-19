@@ -141,21 +141,28 @@ def scrape_all(dfrom, dto):
     driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
     time.sleep(8)
     
-    for code, (url_code, label) in LEAD_TYPES.items():
-        log.info(f"Searching: {label}")
+   for code in doc_codes:
         try:
-            from selenium.webdriver.support.ui import Select
-            sel = Select(driver.find_element(By.NAME, "ctl00$ContentPlaceHolder1$ddlDocCodes"))
-            sel.select_by_value(url_code)
+            dropdown = Select(driver.find_element(By.NAME, "ctl00$ContentPlaceHolder1$ddlDocCodes"))
+            dropdown.select_by_value(code)
+
+            begin = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_datepicker_dateInput")
+            begin.clear()
+            begin.send_keys(start_date)
+
+            end = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_datepickerEnd_dateInput")
+            end.clear()
+            end.send_keys(end_date)
+
             driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
-            time.sleep(8)
-            soup = BeautifulSoup(driver.page_source, "lxml")
-            batch = parse_page(soup, code, label)
-            if batch:
-                all_r.extend(batch)
-                log.info(f"  {len(batch)} records")
+            time.sleep(3)
+
+            results = parse_page(driver.page_source)
+            all_results.extend(results)
+
         except Exception as e:
-            log.error(f"Error on {label}: {e}")
+            print(f"Error on code {code}: {e}")
+            continue
 
 
 def score(rec, all_r):
