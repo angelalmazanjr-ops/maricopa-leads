@@ -127,7 +127,9 @@ def scrape_all(dfrom, dto):
         try:
             url = f"{base}?lastNames=&firstNames=&middleNameIs=&documentTypeSelector=code&documentCode={code}&beginDate={dfrom}&endDate={dto}"
             driver.get(url)
-            time.sleep(5)
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.ID, "table-content")))
             html = driver.page_source
             print(f"Code {code}: page length {len(html)}")
             results = parse_page(html, code)
