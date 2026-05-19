@@ -141,7 +141,7 @@ def scrape_all(dfrom, dto):
     driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
     time.sleep(8)
     
-for code, (url_code, label) in LEAD_TYPES.items():
+    for code, (url_code, label) in LEAD_TYPES.items():
         log.info(f"Searching: {label}")
         try:
             from selenium.webdriver.support.ui import Select
