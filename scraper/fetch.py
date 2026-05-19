@@ -163,7 +163,7 @@ def scrape_all(dfrom, dto):
         except Exception as e:
             print(f"Error on code {code}: {e}")
             continue
-return all_results
+   return all_results
 
 def score(rec, all_r):
     s = 0; flags = []
