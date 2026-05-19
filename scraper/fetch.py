@@ -141,7 +141,7 @@ def scrape_all(dfrom, dto):
     driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
     time.sleep(8)
     
-   for code in doc_codes:
+    for code in doc_codes:
         try:
             dropdown = Select(driver.find_element(By.NAME, "ctl00$ContentPlaceHolder1$ddlDocCodes"))
             dropdown.select_by_value(code)
