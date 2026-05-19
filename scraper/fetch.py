@@ -118,21 +118,14 @@ def fetch_detail(driver, url):
 
 
 def scrape_all(dfrom, dto):
-    from selenium.webdriver.support.ui import Select
     driver = make_driver()
     all_results = []
-    url = "https://recorder.maricopa.gov/recording/document-search.html"
     doc_codes = ["LP", "NS", "JG", "FL", "SL", "ML", "LN", "HL", "PJ", "TD"]
+    base = "https://recorder.maricopa.gov/recording/document-search-results.html"
     for code in doc_codes:
         try:
+            url = f"{base}?lastNames=&firstNames=&middleNameIs=&documentTypeSelector=code&documentCode={code}&beginDate={dfrom}&endDate={dto}"
             driver.get(url)
-            time.sleep(3)
-            Select(driver.find_element(By.NAME, "documentCode")).select_by_value(code)
-            driver.find_element(By.ID, "beginDateInput").clear()
-            driver.find_element(By.ID, "beginDateInput").send_keys(dfrom)
-            driver.find_element(By.ID, "endDateInput").clear()
-            driver.find_element(By.ID, "endDateInput").send_keys(dto)
-            driver.find_element(By.CSS_SELECTOR, "button[type=submit]").click()
             time.sleep(5)
             html = driver.page_source
             print(f"Code {code}: page length {len(html)}")
@@ -144,7 +137,6 @@ def scrape_all(dfrom, dto):
             continue
     driver.quit()
     return all_results
-
 def score(rec, all_r):
     s = 0; flags = []
     amt = rec.get("amount")
