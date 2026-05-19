@@ -76,13 +76,14 @@ def fetch_page(driver, url):
 def parse_page(html, code):
     records = []
     soup = BeautifulSoup(html, "lxml")
-    table = next((t for t in soup.find_all("table") if "RECORDING NUMBER" in t.get_text("|").upper()), None)
-    if not table: return records
-    for row in table.find_all("tr")[1:]:
+    tbody = soup.find("tbody", id="table-content")
+    if not tbody: return records
+    for row in tbody.find_all("tr"):
         cells = row.find_all("td")
         if len(cells) < 3: continue
         try:
-            num = cells[0].get_text(strip=True)
+            span = cells[0].find("span", class_="recordingNumberLabel")
+            num = span.get_text(strip=True) if span else cells[0].get_text(strip=True)
             date = cells[1].get_text(strip=True)
             doc_type = cells[2].get_text(strip=True)
             link = cells[0].find("a")
