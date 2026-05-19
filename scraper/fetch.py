@@ -125,48 +125,28 @@ def fetch_detail(driver, url):
 
 
 def scrape_all(dfrom, dto):
+    from selenium.webdriver.support.ui import Select
     driver = make_driver()
     all_results = []
-    from selenium.webdriver.support.ui import Select
-
-    driver.get(RECORDER_BASE)
-    time.sleep(5)
-
-    date_from = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_datepicker_dateInput")
-    date_from.clear()
-    date_from.send_keys(dfrom)
-
-    date_to = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_datepickerEnd_dateInput")
-    date_to.clear()
-    date_to.send_keys(dto)
-
-    driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
-    time.sleep(8)
-
-    doc_codes = ["SPWD", "AGRD", "LSPD"]
+    url = "https://recorder.maricopa.gov/recording/document-search.html"
+    doc_codes = ["LP", "NS", "JG", "FL", "SL", "ML", "LN", "HL", "PJ", "TD"]
     for code in doc_codes:
         try:
-            dropdown = Select(driver.find_element(By.NAME, "ctl00$ContentPlaceHolder1$ddlDocCodes"))
-            dropdown.select_by_value(code)
-
-            begin = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_datepicker_dateInput")
-            begin.clear()
-            begin.send_keys(dfrom)
-
-            end = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_datepickerEnd_dateInput")
-            end.clear()
-            end.send_keys(dto)
-
-            driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
+            driver.get(url)
             time.sleep(3)
-
+            Select(driver.find_element(By.NAME, "documentCode")).select_by_value(code)
+            driver.find_element(By.ID, "beginDateInput").clear()
+            driver.find_element(By.ID, "beginDateInput").send_keys(dfrom)
+            driver.find_element(By.ID, "endDateInput").clear()
+            driver.find_element(By.ID, "endDateInput").send_keys(dto)
+            driver.find_element(By.CSS_SELECTOR, "button[type=submit]").click()
+            time.sleep(5)
             results = parse_page(driver.page_source)
             all_results.extend(results)
-
         except Exception as e:
             print(f"Error on code {code}: {e}")
             continue
-
+    driver.quit()
     return all_results
 
 def score(rec, all_r):
