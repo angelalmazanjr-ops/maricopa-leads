@@ -126,20 +126,23 @@ def fetch_detail(driver, url):
 
 def scrape_all(dfrom, dto):
     driver = make_driver()
-    all_r = []
-    
-    # Establish session by submitting form once
+    all_results = []
+    from selenium.webdriver.support.ui import Select
+
     driver.get(RECORDER_BASE)
     time.sleep(5)
-    from selenium.webdriver.support.ui import Select
+
     date_from = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_datepicker_dateInput")
     date_from.clear()
     date_from.send_keys(dfrom)
+
     date_to = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_datepickerEnd_dateInput")
     date_to.clear()
     date_to.send_keys(dto)
+
     driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
     time.sleep(8)
+
     doc_codes = ["SPWD", "AGRD", "LSPD"]
     for code in doc_codes:
         try:
@@ -148,11 +151,11 @@ def scrape_all(dfrom, dto):
 
             begin = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_datepicker_dateInput")
             begin.clear()
-            begin.send_keys(start_date)
+            begin.send_keys(dfrom)
 
             end = driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_datepickerEnd_dateInput")
             end.clear()
-            end.send_keys(end_date)
+            end.send_keys(dto)
 
             driver.find_element(By.ID, "ctl00_ContentPlaceHolder1_btnSearchPanel1").click()
             time.sleep(3)
@@ -163,7 +166,8 @@ def scrape_all(dfrom, dto):
         except Exception as e:
             print(f"Error on code {code}: {e}")
             continue
-   return all_results
+
+    return all_results
 
 def score(rec, all_r):
     s = 0; flags = []
