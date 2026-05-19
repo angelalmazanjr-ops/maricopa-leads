@@ -134,7 +134,10 @@ def scrape_all(dfrom, dto):
             driver.find_element(By.ID, "endDateInput").send_keys(dto)
             driver.find_element(By.CSS_SELECTOR, "button[type=submit]").click()
             time.sleep(5)
-            results = parse_page(driver.page_source, code)
+            html = driver.page_source
+            print(f"Code {code}: page length {len(html)}")
+            results = parse_page(html, code)
+            print(f"Code {code}: found {len(results)} results")
             all_results.extend(results)
         except Exception as e:
             print(f"Error on code {code}: {e}")
