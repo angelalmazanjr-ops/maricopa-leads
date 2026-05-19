@@ -132,9 +132,12 @@ def scrape_all(dfrom, dto):
         try:
             # Visit the search form and submit it
             driver.get(RECORDER_BASE)
-            time.sleep(3)
+            time.sleep(5)
             url = build_url(url_code, dfrom, dto, 0)
-            soup = fetch_page(driver, url)
+            driver.get(url)
+            time.sleep(5)
+            soup = BeautifulSoup(driver.page_source, "lxml")
+            
             batch = parse_page(soup, code, label)
             if batch:
                 all_r.extend(batch)
