@@ -1,9 +1,9 @@
 {
-  "fetched_at": "2026-05-19T17:32:53.984434+00:00",
+  "fetched_at": "2026-05-20T18:03:36.913234+00:00",
   "source": "Maricopa County Recorder",
   "date_range": {
-    "from": "2026-05-12",
-    "to": "2026-05-19"
+    "from": "2026-05-13",
+    "to": "2026-05-20"
   },
   "total": 0,
   "with_address": 0,
