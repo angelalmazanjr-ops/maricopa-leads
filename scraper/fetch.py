@@ -1,12 +1,8 @@
-import csv, json, logging, os, re, sys, time
+import csv, json, logging, os, re, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import requests
 from bs4 import BeautifulSoup
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -15,6 +11,9 @@ log = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).parent.parent
 DASHBOARD_JSON = REPO_ROOT / "dashboard" / "records.json"
 DATA_JSON = REPO_ROOT / "data" / "records.json"
+
+SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY", "")
+SCRAPER_API_BASE = "http://api.scraperapi.com"
 
 # Maps URL documentCode param → human label
 DOC_CODE_LABELS = {
@@ -30,29 +29,31 @@ DOC_CODE_LABELS = {
     "TD": "Tax Deed",
 }
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-}
 
+def fetch_html(url, retries=3):
+    """Fetch a page via ScraperAPI with JS rendering enabled."""
+    if not SCRAPER_API_KEY:
+        raise RuntimeError("SCRAPER_API_KEY environment variable is not set")
 
-def make_driver():
-    options = Options()
-    # NO --headless flag — Chrome runs in a real Xvfb virtual display
-    # Sites cannot detect Xvfb; only headless mode is fingerprinted
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument(f"user-agent={HEADERS['User-Agent']}")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
-    driver = webdriver.Chrome(options=options)
-    # Remove navigator.webdriver fingerprint
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-        "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-    })
-    return driver
+    params = {
+        "api_key": SCRAPER_API_KEY,
+        "url": url,
+        "render": "true",          # full JS rendering
+        "wait_for_selector": "#table-content",  # wait until results table exists
+    }
+
+    for attempt in range(1, retries + 1):
+        try:
+            log.info(f"ScraperAPI fetch attempt {attempt}: {url}")
+            resp = requests.get(SCRAPER_API_BASE, params=params, timeout=120)
+            log.info(f"Status {resp.status_code}, length {len(resp.text)}")
+            resp.raise_for_status()
+            return resp.text
+        except Exception as e:
+            log.warning(f"Attempt {attempt} failed: {e}")
+            if attempt < retries:
+                time.sleep(5)
+    return None
 
 
 def parse_page(html, code):
@@ -69,8 +70,7 @@ def parse_page(html, code):
             continue
         try:
             num = cells[0].get_text(strip=True)
-            date_raw = cells[1].get_text(strip=True)
-            date = _nd(date_raw)
+            date = _nd(cells[1].get_text(strip=True))
             doc_type = cells[2].get_text(strip=True)
             link = cells[0].find("a")
             url = link["href"] if link and link.get("href") else ""
@@ -104,42 +104,26 @@ def parse_page(html, code):
 
 
 def scrape_all(dfrom, dto):
-    driver = make_driver()
     all_results = []
     doc_codes = ["LP", "NS", "JG", "FL", "SL", "ML", "LN", "HL", "PJ", "TD"]
     base = "https://recorder.maricopa.gov/recording/document-search-results.html"
 
     for code in doc_codes:
-        try:
-            url = (
-                f"{base}?lastNames=&firstNames=&middleNameIs="
-                f"&documentTypeSelector=code&documentCode={code}"
-                f"&beginDate={dfrom}&endDate={dto}"
-            )
-            log.info(f"Code {code}: fetching {url}")
-            driver.get(url)
-
-            # Wait up to 30s for the results table to render
-            try:
-                WebDriverWait(driver, 30).until(
-                    EC.presence_of_element_located((By.ID, "table-content"))
-                )
-                time.sleep(2)
-            except Exception as e:
-                log.warning(f"Code {code}: table-content not found within 30s — {e}")
-                time.sleep(3)
-
-            html = driver.page_source
-            log.info(f"Code {code}: page length {len(html)}")
-            results = parse_page(html, code)
-            log.info(f"Code {code}: found {len(results)} records")
-            all_results.extend(results)
-
-        except Exception as e:
-            log.error(f"Code {code}: unexpected error — {e}")
+        url = (
+            f"{base}?lastNames=&firstNames=&middleNameIs="
+            f"&documentTypeSelector=code&documentCode={code}"
+            f"&beginDate={dfrom}&endDate={dto}"
+        )
+        log.info(f"=== Code {code} ===")
+        html = fetch_html(url)
+        if not html:
+            log.error(f"Code {code}: failed to fetch page")
             continue
+        results = parse_page(html, code)
+        log.info(f"Code {code}: found {len(results)} records")
+        all_results.extend(results)
+        time.sleep(1)  # brief pause between requests
 
-    driver.quit()
     return all_results
 
 
@@ -191,7 +175,6 @@ def score(rec, all_r):
 
 
 def _nd(raw):
-    """Normalize various date formats to YYYY-MM-DD."""
     raw = raw.strip()
     for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m/%d/%y", "%m-%d-%Y", "%m-%d-%y"):
         try:
@@ -283,7 +266,7 @@ def main():
     dto_iso = today.strftime("%Y-%m-%d")
     dfrom_iso = (today - timedelta(days=7)).strftime("%Y-%m-%d")
 
-    log.info("=== Maricopa Motivated Seller Scraper ===")
+    log.info("=== Maricopa Motivated Seller Scraper (ScraperAPI) ===")
     log.info(f"Date range: {dfrom} → {dto}")
 
     raw = scrape_all(dfrom, dto)
