@@ -3,7 +3,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
-from bs4 import BeautifulSoup
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger(__name__)
@@ -12,10 +11,16 @@ REPO_ROOT = Path(__file__).parent.parent
 DASHBOARD_JSON = REPO_ROOT / "dashboard" / "records.json"
 DATA_JSON = REPO_ROOT / "data" / "records.json"
 
-SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY", "")
-SCRAPER_API_BASE = "http://api.scraperapi.com"
+# Public JSON API discovered from browser DevTools — no scraping needed
+API_BASE = "https://publicapi.recorder.maricopa.gov/documents/search"
 
-# Maps URL documentCode param → human label
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Referer": "https://recorder.maricopa.gov/",
+    "Origin": "https://recorder.maricopa.gov",
+    "Accept": "application/json, text/plain, */*",
+}
+
 DOC_CODE_LABELS = {
     "LP": "Lis Pendens",
     "NS": "Notice of Trustees Sale",
@@ -30,65 +35,68 @@ DOC_CODE_LABELS = {
 }
 
 
-def fetch_html(url, retries=3):
-    """Fetch a page via ScraperAPI with JS rendering enabled."""
-    if not SCRAPER_API_KEY:
-        raise RuntimeError("SCRAPER_API_KEY environment variable is not set")
-
-    params = {
-        "api_key": SCRAPER_API_KEY,
-        "url": url,
-        "render": "true",   # full JS rendering
-        "wait": "15000",    # wait 15s for JS data to fully populate
-    }
-
-    for attempt in range(1, retries + 1):
-        try:
-            log.info(f"ScraperAPI fetch attempt {attempt}: {url}")
-            resp = requests.get(SCRAPER_API_BASE, params=params, timeout=120)
-            log.info(f"Status {resp.status_code}, length {len(resp.text)}")
-            resp.raise_for_status()
-            return resp.text
-        except Exception as e:
-            log.warning(f"Attempt {attempt} failed: {e}")
-            if attempt < retries:
-                time.sleep(5)
-    return None
-
-
-def parse_page(html, code):
+def fetch_code(code, begin_date, end_date):
+    """Fetch all records for a doc code from the public API, handling pagination."""
     records = []
-    cat_label = DOC_CODE_LABELS.get(code, code)
-    soup = BeautifulSoup(html, "lxml")
-    tbody = soup.find("tbody", id="table-content")
-    if not tbody:
-        log.warning(f"Code {code}: no tbody#table-content found in page")
-        return records
-    for row in tbody.find_all("tr"):
-        cells = row.find_all("td")
-        if len(cells) < 3:
-            continue
+    page = 1
+
+    while True:
+        params = {
+            "businessNames": "",
+            "firstNames": "",
+            "lastNames": "",
+            "middleNameIs": "",
+            "documentCode": code,
+            "beginDate": begin_date,   # YYYY-MM-DD
+            "endDate": end_date,
+            "pageSize": 20,
+            "pageNumber": page,
+            "maxResults": 500,
+        }
         try:
-            num = cells[0].get_text(strip=True)
-            date = _nd(cells[1].get_text(strip=True))
-            doc_type = cells[2].get_text(strip=True)
-            link = cells[0].find("a")
-            url = link["href"] if link and link.get("href") else ""
-            if url.startswith("/"):
-                url = "https://recorder.maricopa.gov" + url
-            if not num:
+            log.info(f"Code {code} page {page}: fetching...")
+            resp = requests.get(API_BASE, params=params, headers=HEADERS, timeout=30)
+            log.info(f"Code {code} page {page}: status {resp.status_code}, size {len(resp.text)}")
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            log.error(f"Code {code} page {page}: request failed — {e}")
+            break
+
+        # API returns either a list directly, or a dict wrapping a list
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            # Try common wrapper keys
+            items = (data.get("results") or data.get("data") or
+                     data.get("documents") or data.get("records") or [])
+        else:
+            items = []
+
+        if not items:
+            log.info(f"Code {code} page {page}: no items returned, stopping pagination")
+            break
+
+        cat_label = DOC_CODE_LABELS.get(code, code)
+        for item in items:
+            doc_num = str(item.get("recordingNumber", "")).strip()
+            if not doc_num:
                 continue
+            suffix = item.get("recordingSuffix", "").strip()
+            if suffix:
+                doc_num = f"{doc_num}-{suffix}"
+
             records.append({
-                "doc_num": num,
-                "doc_type": doc_type,
+                "doc_num": doc_num,
+                "doc_type": item.get("documentCode", "").strip(),
                 "cat": code,
                 "cat_label": cat_label,
-                "filed": date,
-                "owner": "",
+                "filed": _nd(item.get("recordingDate", "")),
+                "owner": item.get("names", "").strip(),
                 "grantee": "",
                 "legal": "",
                 "amount": None,
-                "clerk_url": url,
+                "clerk_url": f"https://recorder.maricopa.gov/recording/document-detail.html?doc={doc_num}",
                 "prop_address": "",
                 "prop_city": "",
                 "prop_state": "AZ",
@@ -98,32 +106,26 @@ def parse_page(html, code):
                 "mail_state": "AZ",
                 "mail_zip": "",
             })
-        except Exception as e:
-            log.debug(f"Row parse error: {e}")
+
+        log.info(f"Code {code} page {page}: got {len(items)} items (running total: {len(records)})")
+
+        # Stop if we got fewer results than page size (last page)
+        if len(items) < 20:
+            break
+        page += 1
+        time.sleep(0.5)  # be polite
+
     return records
 
 
-def scrape_all(dfrom, dto):
-    all_results = []
+def scrape_all(begin_date, end_date):
     doc_codes = ["LP", "NS", "JG", "FL", "SL", "ML", "LN", "HL", "PJ", "TD"]
-    base = "https://recorder.maricopa.gov/recording/document-search-results.html"
-
+    all_results = []
     for code in doc_codes:
-        url = (
-            f"{base}?lastNames=&firstNames=&middleNameIs="
-            f"&documentTypeSelector=code&documentCode={code}"
-            f"&beginDate={dfrom}&endDate={dto}"
-        )
-        log.info(f"=== Code {code} ===")
-        html = fetch_html(url)
-        if not html:
-            log.error(f"Code {code}: failed to fetch page")
-            continue
-        results = parse_page(html, code)
-        log.info(f"Code {code}: found {len(results)} records")
+        results = fetch_code(code, begin_date, end_date)
+        log.info(f"=== Code {code}: {len(results)} total records ===")
         all_results.extend(results)
-        time.sleep(1)  # brief pause between requests
-
+        time.sleep(0.5)
     return all_results
 
 
@@ -261,16 +263,14 @@ def export_csv(records, dto):
 
 def main():
     today = datetime.now().date()
-    dto = f"{today.month}/{today.day}/{today.year}"
-    dfrom = f"{(today - timedelta(days=7)).month}/{(today - timedelta(days=7)).day}/{(today - timedelta(days=7)).year}"
     dto_iso = today.strftime("%Y-%m-%d")
     dfrom_iso = (today - timedelta(days=7)).strftime("%Y-%m-%d")
 
-    log.info("=== Maricopa Motivated Seller Scraper (ScraperAPI) ===")
-    log.info(f"Date range: {dfrom} → {dto}")
+    log.info("=== Maricopa Motivated Seller Scraper (Direct API) ===")
+    log.info(f"Date range: {dfrom_iso} → {dto_iso}")
 
-    raw = scrape_all(dfrom, dto)
-    log.info(f"Total raw records scraped: {len(raw)}")
+    raw = scrape_all(dfrom_iso, dto_iso)
+    log.info(f"Total raw records: {len(raw)}")
 
     final = []
     for rec in raw:
