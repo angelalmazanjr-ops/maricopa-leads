@@ -57,23 +57,17 @@ def fetch_code(code, begin_date, end_date):
             log.info(f"Code {code} page {page}: fetching...")
             resp = requests.get(API_BASE, params=params, headers=HEADERS, timeout=30)
             log.info(f"Code {code} page {page}: status {resp.status_code}, size {len(resp.text)}")
-            log.info(f"Code {code} page {page}: raw response[:500] = {resp.text[:500]}")
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
             log.error(f"Code {code} page {page}: request failed — {e}")
             break
 
-        # API returns either a list directly, or a dict wrapping a list
+        # API returns {"searchResults": [...], "totalResults": N}
         if isinstance(data, list):
             items = data
         elif isinstance(data, dict):
-            log.info(f"Code {code} page {page}: dict keys = {list(data.keys())}")
-            # Try common wrapper keys
-            items = (data.get("results") or data.get("data") or
-                     data.get("documents") or data.get("records") or
-                     data.get("items") or data.get("rows") or
-                     data.get("recordsList") or data.get("searchResults") or [])
+            items = data.get("searchResults") or []
         else:
             items = []
 
