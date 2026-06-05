@@ -38,8 +38,8 @@ def fetch_html(url, retries=3):
     params = {
         "api_key": SCRAPER_API_KEY,
         "url": url,
-        "render": "true",          # full JS rendering
-        "wait_for_selector": "#table-content",  # wait until results table exists
+        "render": "true",   # full JS rendering
+        "wait": "15000",    # wait 15s for JS data to fully populate
     }
 
     for attempt in range(1, retries + 1):
