@@ -37,14 +37,13 @@ HEADERS = {
 
 def make_driver():
     options = Options()
-    # Use new headless mode — much harder to detect than old --headless
-    options.add_argument("--headless=new")
+    # NO --headless flag — Chrome runs in a real Xvfb virtual display
+    # Sites cannot detect Xvfb; only headless mode is fingerprinted
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     options.add_argument(f"user-agent={HEADERS['User-Agent']}")
-    # Anti-bot-detection flags
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
@@ -69,7 +68,6 @@ def parse_page(html, code):
         if len(cells) < 3:
             continue
         try:
-            # Recording number — may be wrapped in a button or span
             num = cells[0].get_text(strip=True)
             date_raw = cells[1].get_text(strip=True)
             date = _nd(date_raw)
@@ -126,13 +124,9 @@ def scrape_all(dfrom, dto):
                 WebDriverWait(driver, 30).until(
                     EC.presence_of_element_located((By.ID, "table-content"))
                 )
-                time.sleep(2)  # brief extra settle
+                time.sleep(2)
             except Exception as e:
                 log.warning(f"Code {code}: table-content not found within 30s — {e}")
-                # Save page for debugging in CI
-                debug_path = Path(f"/tmp/debug_{code}.html")
-                debug_path.write_text(driver.page_source)
-                log.info(f"Code {code}: saved page to {debug_path}")
                 time.sleep(3)
 
             html = driver.page_source
