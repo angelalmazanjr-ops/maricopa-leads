@@ -22,31 +22,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: git sparse-checkout disable || true
-      - run: ls -la
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install Chrome and Xvfb
-        run: |
-          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
-          sudo apt-get update -q
-          sudo apt-get install -y google-chrome-stable xvfb
-
-      - name: Start virtual display (Xvfb)
-        run: |
-          Xvfb :99 -screen 0 1920x1080x24 &
-          sleep 2
-          echo "DISPLAY=:99" >> $GITHUB_ENV
-
-      - run: pip install requests beautifulsoup4 lxml dbfread selenium webdriver-manager
+      - run: pip install requests beautifulsoup4 lxml
 
       - run: python scraper/fetch.py
         env:
           PYTHONUNBUFFERED: "1"
-          DISPLAY: ":99"
           SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
 
       - run: |
