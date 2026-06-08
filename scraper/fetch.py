@@ -189,11 +189,26 @@ def fetch_detail(doc_num):
 
 # ── Assessor API — address lookup via ArcGIS REST ─────────────────
 
+def _probe_arcgis():
+    """Fetch one record from ArcGIS to discover field names and confirm connectivity."""
+    try:
+        resp = requests.get(
+            ASSESSOR_GEO,
+            params={"where": "1=1", "outFields": "*", "resultRecordCount": 1, "f": "json"},
+            headers={"User-Agent": HEADERS["User-Agent"]},
+            timeout=20,
+        )
+        data = resp.json()
+        log.info(f"ARCGIS PROBE status={resp.status_code}: {json.dumps(data, default=str)[:800]}")
+    except Exception as e:
+        log.warning(f"ARCGIS PROBE failed: {e}")
+
+
 def _arcgis_query(where, label=""):
     """Query the Maricopa Assessor ArcGIS FeatureServer and return address dict."""
     params = {
         "where":             where,
-        "outFields":         "OWNER,SITUS_ADDR,SITUS_CITY,SITUS_ZIP,APN,MAIL_ADDR,MAIL_CITY,MAIL_STATE,MAIL_ZIP",
+        "outFields":         "*",
         "resultRecordCount": 1,
         "f":                 "json",
     }
@@ -204,28 +219,38 @@ def _arcgis_query(where, label=""):
             timeout=20,
         )
         if resp.status_code != 200:
+            log.warning(f"ArcGIS HTTP {resp.status_code} for {label}")
             return {}
         data = resp.json()
 
-        # Log full response on first call so we can see field names
+        # Log full response on first call so we can see actual field names
         if not hasattr(_arcgis_query, "_logged"):
             _arcgis_query._logged = True
-            log.info(f"ARCGIS SAMPLE ({label}): {json.dumps(data, default=str)[:600]}")
+            log.info(f"ARCGIS SAMPLE ({label}): {json.dumps(data, default=str)[:800]}")
+
+        # ArcGIS may return an error object
+        if "error" in data:
+            log.warning(f"ArcGIS error ({label}): {data['error']}")
+            return {}
 
         features = data.get("features", [])
         if not features:
             return {}
         attrs = features[0].get("attributes", {})
 
-        # Handle both SITUS_ and SITE_ prefixes (different service versions)
+        # Try all known Maricopa Assessor field name variants
         addr = (attrs.get("SITUS_ADDR") or attrs.get("SITE_ADDR") or
-                attrs.get("SITUS_ADDRESS") or attrs.get("ADDRESS") or "").strip()
-        city = (attrs.get("SITUS_CITY") or attrs.get("SITE_CITY") or "").strip()
-        zipcode = str(attrs.get("SITUS_ZIP") or attrs.get("SITE_ZIP") or "").strip().split(".")[0]
-        mail_addr  = (attrs.get("MAIL_ADDR") or attrs.get("MAILING_ADDR") or "").strip()
-        mail_city  = (attrs.get("MAIL_CITY") or "").strip()
-        mail_state = (attrs.get("MAIL_STATE") or "AZ").strip()
-        mail_zip   = str(attrs.get("MAIL_ZIP") or "").strip().split(".")[0]
+                attrs.get("SITUS_ADDRESS") or attrs.get("ADDRESS") or
+                attrs.get("situs_addr") or "").strip()
+        city = (attrs.get("SITUS_CITY") or attrs.get("SITE_CITY") or
+                attrs.get("situs_city") or "").strip()
+        zipcode = str(attrs.get("SITUS_ZIP") or attrs.get("SITE_ZIP") or
+                      attrs.get("situs_zip") or "").strip().split(".")[0]
+        mail_addr  = (attrs.get("MAIL_ADDR") or attrs.get("MAILING_ADDR") or
+                      attrs.get("mail_addr") or "").strip()
+        mail_city  = (attrs.get("MAIL_CITY") or attrs.get("mail_city") or "").strip()
+        mail_state = (attrs.get("MAIL_STATE") or attrs.get("mail_state") or "AZ").strip()
+        mail_zip   = str(attrs.get("MAIL_ZIP") or attrs.get("mail_zip") or "").strip().split(".")[0]
 
         result = {}
         if addr:
@@ -240,7 +265,7 @@ def _arcgis_query(where, label=""):
         return result
 
     except Exception as e:
-        log.debug(f"ArcGIS {label}: {e}")
+        log.warning(f"ArcGIS {label}: {e}")
     return {}
 
 
@@ -250,7 +275,11 @@ def fetch_assessor_by_apn(apn):
         return {}
     digits = re.sub(r"[^0-9]", "", apn)
     apn_fmt = f"{digits[:3]}-{digits[3:5]}-{digits[5:]}" if len(digits) >= 8 else apn
-    return _arcgis_query(f"APN='{apn_fmt}'", f"APN:{apn_fmt}")
+    # Try both APN and PARCEL_NO field names
+    result = _arcgis_query(f"APN='{apn_fmt}'", f"APN:{apn_fmt}")
+    if not result:
+        result = _arcgis_query(f"PARCEL_NO='{apn_fmt}'", f"APN2:{apn_fmt}")
+    return result
 
 
 def fetch_assessor_by_name(name):
@@ -459,6 +488,7 @@ def main():
 
     log.info("=== Maricopa Motivated Seller Scraper ===")
     log.info(f"Date range: {dfrom_iso} → {dto_iso}")
+    _probe_arcgis()
 
     raw = scrape_all(dfrom_iso, dto_iso)
     log.info(f"Raw records: {len(raw)}")
