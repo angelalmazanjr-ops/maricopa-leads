@@ -227,6 +227,7 @@ def fetch_assessor(apn):
 
         # Fallback: parse HTML
         html = resp.text
+        # Try common label patterns
         for lbl_pat, field in [
             (r"(?:Site\s+Address|SITE_ADDR)[^<]*</[^>]+>\s*<[^>]+>\s*([0-9][^<]{4,80})", "prop_address"),
         ]:
