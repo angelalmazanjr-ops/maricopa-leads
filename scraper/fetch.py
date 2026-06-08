@@ -187,78 +187,74 @@ def fetch_detail(doc_num):
     return result
 
 
-# ── Assessor API — address lookup ──────────────────────────────────
+# ── Assessor API — address lookup via ArcGIS REST ─────────────────
 
-def _parse_assessor_html(html, label=""):
-    """Extract address from Maricopa Assessor HTML response."""
-    if not hasattr(_parse_assessor_html, "_logged"):
-        _parse_assessor_html._logged = True
-        log.info(f"ASSESSOR HTML SAMPLE ({label}): {html[:600]}")
-    m = re.search(
-        r"(?:Site\s*Address|SITE_ADDR|Situs\s*Addr)[^<]*</[^>]+>\s*(?:<[^>]+>\s*)*([0-9][^<\n]{5,80})",
-        html, re.I)
-    if not m:
-        # Try table cell pattern: <td>123 Main St</td>
-        m = re.search(r"<td[^>]*>\s*(\d+\s+[A-Z][^<]{5,60}(?:DR|ST|AVE|LN|WAY|BLVD|RD|CT|PL|CIR)[^<]*)</td>", html, re.I)
-    if m:
-        addr = m.group(1).strip()
-        city_m = re.search(r"(?:Site\s*City|SITE_CITY|Situs\s*City)[^<]*</[^>]+>\s*(?:<[^>]+>\s*)*([A-Z][^<\n]{2,40})", html, re.I)
-        zip_m  = re.search(r"(?:Site\s*Zip|SITE_ZIP|Situs\s*Zip)[^<]*</[^>]+>\s*(?:<[^>]+>\s*)*(\d{5})", html, re.I)
-        return {
-            "prop_address": addr,
-            "prop_city":    city_m.group(1).strip() if city_m else "",
-            "prop_zip":     zip_m.group(1).strip()  if zip_m  else "",
-        }
-    return {}
-
-
-def _call_assessor(query, label=""):
-    """Call mcassessor.maricopa.gov/mcs.php with a query and return address dict."""
+def _arcgis_query(where, label=""):
+    """Query the Maricopa Assessor ArcGIS FeatureServer and return address dict."""
+    params = {
+        "where":             where,
+        "outFields":         "OWNER,SITUS_ADDR,SITUS_CITY,SITUS_ZIP,APN,MAIL_ADDR,MAIL_CITY,MAIL_STATE,MAIL_ZIP",
+        "resultRecordCount": 1,
+        "f":                 "json",
+    }
     try:
         resp = requests.get(
-            ASSESSOR_API, params={"q": query},
-            headers={"User-Agent": HEADERS["User-Agent"], "Accept": "text/html,*/*"},
-            timeout=12,
+            ASSESSOR_GEO, params=params,
+            headers={"User-Agent": HEADERS["User-Agent"], "Accept": "application/json"},
+            timeout=20,
         )
         if resp.status_code != 200:
             return {}
-        # Try JSON first
-        try:
-            data = resp.json()
-            if not hasattr(_call_assessor, "_logged"):
-                _call_assessor._logged = True
-                log.info(f"ASSESSOR JSON SAMPLE ({label}): {json.dumps(data, default=str)[:400]}")
-            item = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else {})
-            # Handle ArcGIS feature wrapper
-            if "features" in item and item["features"]:
-                item = item["features"][0].get("attributes", {})
-            addr = (item.get("siteAddress") or item.get("SITE_ADDR") or item.get("address") or
-                    item.get("propertyAddress") or item.get("SITUS_ADDR") or "").strip()
-            city = (item.get("siteCity") or item.get("SITE_CITY") or item.get("city") or
-                    item.get("SITUS_CITY") or "").strip()
-            zipcode = (item.get("siteZip") or item.get("SITE_ZIP") or item.get("zip") or
-                       item.get("zipCode") or item.get("SITUS_ZIP") or "").strip()
-            if addr:
-                return {"prop_address": addr, "prop_city": city, "prop_zip": zipcode}
-        except ValueError:
-            pass
-        return _parse_assessor_html(resp.text, label)
+        data = resp.json()
+
+        # Log full response on first call so we can see field names
+        if not hasattr(_arcgis_query, "_logged"):
+            _arcgis_query._logged = True
+            log.info(f"ARCGIS SAMPLE ({label}): {json.dumps(data, default=str)[:600]}")
+
+        features = data.get("features", [])
+        if not features:
+            return {}
+        attrs = features[0].get("attributes", {})
+
+        # Handle both SITUS_ and SITE_ prefixes (different service versions)
+        addr = (attrs.get("SITUS_ADDR") or attrs.get("SITE_ADDR") or
+                attrs.get("SITUS_ADDRESS") or attrs.get("ADDRESS") or "").strip()
+        city = (attrs.get("SITUS_CITY") or attrs.get("SITE_CITY") or "").strip()
+        zipcode = str(attrs.get("SITUS_ZIP") or attrs.get("SITE_ZIP") or "").strip().split(".")[0]
+        mail_addr  = (attrs.get("MAIL_ADDR") or attrs.get("MAILING_ADDR") or "").strip()
+        mail_city  = (attrs.get("MAIL_CITY") or "").strip()
+        mail_state = (attrs.get("MAIL_STATE") or "AZ").strip()
+        mail_zip   = str(attrs.get("MAIL_ZIP") or "").strip().split(".")[0]
+
+        result = {}
+        if addr:
+            result["prop_address"] = addr
+            result["prop_city"]    = city
+            result["prop_zip"]     = zipcode
+        if mail_addr:
+            result["mail_address"] = mail_addr
+            result["mail_city"]    = mail_city
+            result["mail_state"]   = mail_state
+            result["mail_zip"]     = mail_zip
+        return result
+
     except Exception as e:
-        log.debug(f"Assessor {label}: {e}")
+        log.debug(f"ArcGIS {label}: {e}")
     return {}
 
 
 def fetch_assessor_by_apn(apn):
-    """Look up property address by Maricopa APN (digits only, 8-9 chars)."""
+    """Look up property address by Maricopa APN."""
     if not apn or len(re.sub(r"[^0-9]", "", apn)) < 7:
         return {}
     digits = re.sub(r"[^0-9]", "", apn)
     apn_fmt = f"{digits[:3]}-{digits[3:5]}-{digits[5:]}" if len(digits) >= 8 else apn
-    return _call_assessor(apn_fmt, f"APN:{apn_fmt}")
+    return _arcgis_query(f"APN='{apn_fmt}'", f"APN:{apn_fmt}")
 
 
 def fetch_assessor_by_name(name):
-    """Look up property address by grantee/homeowner name."""
+    """Look up property address by grantee/homeowner name via ArcGIS LIKE query."""
     name = (name or "").strip()
     if not name or len(name) < 5:
         return {}
@@ -267,7 +263,13 @@ def fetch_assessor_by_name(name):
             "FINANCIAL","FUND","INVESTMENT","PROP","REAL ESTATE","VENTURE")
     if any(k in name.upper() for k in skip):
         return {}
-    return _call_assessor(name, f"NAME:{name[:25]}")
+    # Use first two words of name for LIKE query (recorder format: LAST FIRST MI)
+    parts = name.split()
+    if len(parts) >= 2:
+        where = f"OWNER LIKE '%{parts[0]}%{parts[1]}%'"
+    else:
+        where = f"OWNER LIKE '%{parts[0]}%'"
+    return _arcgis_query(where, f"NAME:{name[:25]}")
 
 
 # ── Enrichment ─────────────────────────────────────────────────────
