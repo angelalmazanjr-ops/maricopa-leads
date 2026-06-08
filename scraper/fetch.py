@@ -11,10 +11,10 @@ REPO_ROOT      = Path(__file__).parent.parent
 DASHBOARD_JSON = REPO_ROOT / "dashboard" / "records.json"
 DATA_JSON      = REPO_ROOT / "data" / "records.json"
 
-SEARCH_API   = "https://publicapi.recorder.maricopa.gov/documents/search"
-DETAIL_API   = "https://publicapi.recorder.maricopa.gov/documents/{}"
-ASSESSOR_API = "https://mcassessor.maricopa.gov/mcs.php"
-ASSESSOR_GEO = "https://geo.maricopa.gov/arcgis/rest/services/Assessor/Assessor_Parcel_Information/FeatureServer/0/query"
+SEARCH_API      = "https://publicapi.recorder.maricopa.gov/documents/search"
+DETAIL_API      = "https://publicapi.recorder.maricopa.gov/documents/{}"
+ASSESSOR_SEARCH = "https://mcassessor.maricopa.gov/search/property/"
+ASSESSOR_GEO    = "https://gis.mcassessor.maricopa.gov/arcgis/rest/services/Parcels/MapServer/0/query"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -61,7 +61,6 @@ def fetch_code(code, begin_date, end_date):
             log.error(f"Code {code} page {page}: {e}")
             break
 
-        # Handle list OR dict response
         if isinstance(data, list):
             items = data
         elif isinstance(data, dict):
@@ -122,10 +121,9 @@ def scrape_all(begin_date, end_date):
     return all_results
 
 
-# ── Detail API — names + amount + parcel ───────────────────────────
+# ── Detail API ─────────────────────────────────────────────────────
 
 def fetch_detail(doc_num):
-    """Pull owner, grantee, amount, and APN from the recorder detail API."""
     result = {"owner": "", "grantee": "", "amount": None, "parcel": ""}
     try:
         resp = requests.get(DETAIL_API.format(doc_num), headers=HEADERS, timeout=15)
@@ -133,12 +131,10 @@ def fetch_detail(doc_num):
             return result
         data = resp.json()
 
-        # Log full structure on the very first call (once) so we can see what's returned
         if not hasattr(fetch_detail, "_logged"):
             fetch_detail._logged = True
             log.info(f"DETAIL SAMPLE for {doc_num}: {json.dumps(data, default=str)[:500]}")
 
-        # ── Names ──
         names = data.get("names", [])
         if isinstance(names, list) and names:
             result["owner"]   = str(names[0]).strip()
@@ -154,7 +150,6 @@ def fetch_detail(doc_num):
                 v = data.get(k)
                 if v: result["grantee"] = str(v).strip(); break
 
-        # ── Amount / Consideration ──
         for key in ("consideration", "considerationAmount", "amount",
                     "lienAmount", "debtAmount", "totalAmount", "balance"):
             val = data.get(key)
@@ -164,7 +159,6 @@ def fetch_detail(doc_num):
                     result["amount"] = amt
                     break
 
-        # ── Parcel / APN ──
         for key in ("parcelNumber", "apn", "assessorParcelNumber",
                     "taxParcelNumber", "parcel", "parcelNum"):
             val = data.get(key)
@@ -172,7 +166,6 @@ def fetch_detail(doc_num):
                 result["parcel"] = re.sub(r"[^0-9A-Za-z]", "", str(val))
                 break
 
-        # Fallback: parse APN from legal description (pattern: 3-2-3 digits)
         if not result["parcel"]:
             legal = ""
             for key in ("legalDescription", "legal", "description", "legalDesc"):
@@ -187,86 +180,112 @@ def fetch_detail(doc_num):
     return result
 
 
-# ── Assessor API — address lookup via ArcGIS REST ─────────────────
+# ── Assessor API — address lookup ──────────────────────────────────
 
-def _probe_arcgis():
-    """Fetch one record from ArcGIS to discover field names and confirm connectivity."""
+def _probe_assessor():
+    """Probe both the search API and GIS service at startup."""
+    try:
+        resp = requests.get(
+            ASSESSOR_SEARCH, params={"q": "SMITH JOHN"},
+            headers={"User-Agent": HEADERS["User-Agent"], "Accept": "application/json"},
+            timeout=15,
+        )
+        log.info(f"SEARCH API PROBE status={resp.status_code}: {resp.text[:500]}")
+    except Exception as e:
+        log.warning(f"SEARCH API PROBE failed: {e}")
+
     try:
         resp = requests.get(
             ASSESSOR_GEO,
             params={"where": "1=1", "outFields": "*", "resultRecordCount": 1, "f": "json"},
             headers={"User-Agent": HEADERS["User-Agent"]},
-            timeout=20,
+            timeout=15,
         )
-        data = resp.json()
-        log.info(f"ARCGIS PROBE status={resp.status_code}: {json.dumps(data, default=str)[:800]}")
+        log.info(f"GIS PROBE status={resp.status_code}: {resp.text[:500]}")
     except Exception as e:
-        log.warning(f"ARCGIS PROBE failed: {e}")
+        log.warning(f"GIS PROBE failed: {e}")
 
 
-def _arcgis_query(where, label=""):
-    """Query the Maricopa Assessor ArcGIS FeatureServer and return address dict."""
-    params = {
-        "where":             where,
-        "outFields":         "*",
-        "resultRecordCount": 1,
-        "f":                 "json",
-    }
-    try:
-        resp = requests.get(
-            ASSESSOR_GEO, params=params,
-            headers={"User-Agent": HEADERS["User-Agent"], "Accept": "application/json"},
-            timeout=20,
-        )
-        if resp.status_code != 200:
-            log.warning(f"ArcGIS HTTP {resp.status_code} for {label}")
-            return {}
-        data = resp.json()
+def _parse_search_json(data, label=""):
+    """Extract address dict from mcassessor.maricopa.gov/search/property/ JSON."""
+    if not hasattr(_parse_search_json, "_logged"):
+        _parse_search_json._logged = True
+        log.info(f"SEARCH API SAMPLE ({label}): {json.dumps(data, default=str)[:600]}")
 
-        # Log full response on first call so we can see actual field names
-        if not hasattr(_arcgis_query, "_logged"):
-            _arcgis_query._logged = True
-            log.info(f"ARCGIS SAMPLE ({label}): {json.dumps(data, default=str)[:800]}")
+    parcels = []
+    for key in ("Real Property", "real_property", "realProperty", "parcels", "results"):
+        v = data.get(key)
+        if isinstance(v, list) and v:
+            parcels = v
+            break
+    if not parcels and isinstance(data, list):
+        parcels = data
+    if not parcels:
+        return {}
 
-        # ArcGIS may return an error object
-        if "error" in data:
-            log.warning(f"ArcGIS error ({label}): {data['error']}")
-            return {}
+    p = parcels[0]
+    addr = (p.get("siteAddress") or p.get("site_address") or p.get("address") or
+            p.get("SITE_ADDR") or p.get("situs") or p.get("propertyAddress") or "").strip()
+    city = (p.get("siteCity") or p.get("site_city") or p.get("city") or
+            p.get("SITE_CITY") or "").strip()
+    zipcode = str(p.get("siteZip") or p.get("site_zip") or
+                  p.get("zip") or p.get("SITE_ZIP") or "").strip().split(".")[0]
+    mail_addr  = (p.get("mailingAddress") or p.get("mailing_address") or
+                  p.get("mailAddress") or p.get("mail_address") or "").strip()
+    mail_city  = (p.get("mailingCity") or p.get("mailing_city") or
+                  p.get("mailCity") or "").strip()
+    mail_state = (p.get("mailingState") or p.get("mailing_state") or "AZ").strip()
+    mail_zip   = str(p.get("mailingZip") or p.get("mailing_zip") or
+                     p.get("mailZip") or "").strip().split(".")[0]
 
-        features = data.get("features", [])
-        if not features:
-            return {}
-        attrs = features[0].get("attributes", {})
+    result = {}
+    if addr:
+        result["prop_address"] = addr
+        result["prop_city"]    = city
+        result["prop_zip"]     = zipcode
+    if mail_addr:
+        result["mail_address"] = mail_addr
+        result["mail_city"]    = mail_city
+        result["mail_state"]   = mail_state
+        result["mail_zip"]     = mail_zip
+    return result
 
-        # Try all known Maricopa Assessor field name variants
-        addr = (attrs.get("SITUS_ADDR") or attrs.get("SITE_ADDR") or
-                attrs.get("SITUS_ADDRESS") or attrs.get("ADDRESS") or
-                attrs.get("situs_addr") or "").strip()
-        city = (attrs.get("SITUS_CITY") or attrs.get("SITE_CITY") or
-                attrs.get("situs_city") or "").strip()
-        zipcode = str(attrs.get("SITUS_ZIP") or attrs.get("SITE_ZIP") or
-                      attrs.get("situs_zip") or "").strip().split(".")[0]
-        mail_addr  = (attrs.get("MAIL_ADDR") or attrs.get("MAILING_ADDR") or
-                      attrs.get("mail_addr") or "").strip()
-        mail_city  = (attrs.get("MAIL_CITY") or attrs.get("mail_city") or "").strip()
-        mail_state = (attrs.get("MAIL_STATE") or attrs.get("mail_state") or "AZ").strip()
-        mail_zip   = str(attrs.get("MAIL_ZIP") or attrs.get("mail_zip") or "").strip().split(".")[0]
 
-        result = {}
-        if addr:
-            result["prop_address"] = addr
-            result["prop_city"]    = city
-            result["prop_zip"]     = zipcode
-        if mail_addr:
-            result["mail_address"] = mail_addr
-            result["mail_city"]    = mail_city
-            result["mail_state"]   = mail_state
-            result["mail_zip"]     = mail_zip
-        return result
+def _parse_gis_json(data, label=""):
+    """Extract address dict from gis.mcassessor.maricopa.gov ArcGIS query JSON."""
+    if not hasattr(_parse_gis_json, "_logged"):
+        _parse_gis_json._logged = True
+        log.info(f"GIS SAMPLE ({label}): {json.dumps(data, default=str)[:600]}")
 
-    except Exception as e:
-        log.warning(f"ArcGIS {label}: {e}")
-    return {}
+    if "error" in data:
+        log.warning(f"GIS error ({label}): {data['error']}")
+        return {}
+
+    features = data.get("features", [])
+    if not features:
+        return {}
+    attrs = features[0].get("attributes", {})
+
+    addr = (attrs.get("SITUS_ADDR") or attrs.get("SITE_ADDR") or
+            attrs.get("ADDRESS") or attrs.get("situs_addr") or "").strip()
+    city = (attrs.get("SITUS_CITY") or attrs.get("SITE_CITY") or "").strip()
+    zipcode = str(attrs.get("SITUS_ZIP") or attrs.get("SITE_ZIP") or "").strip().split(".")[0]
+    mail_addr  = (attrs.get("MAIL_ADDR") or attrs.get("MAILING_ADDR") or "").strip()
+    mail_city  = (attrs.get("MAIL_CITY") or "").strip()
+    mail_state = (attrs.get("MAIL_STATE") or "AZ").strip()
+    mail_zip   = str(attrs.get("MAIL_ZIP") or "").strip().split(".")[0]
+
+    result = {}
+    if addr:
+        result["prop_address"] = addr
+        result["prop_city"]    = city
+        result["prop_zip"]     = zipcode
+    if mail_addr:
+        result["mail_address"] = mail_addr
+        result["mail_city"]    = mail_city
+        result["mail_state"]   = mail_state
+        result["mail_zip"]     = mail_zip
+    return result
 
 
 def fetch_assessor_by_apn(apn):
@@ -275,30 +294,58 @@ def fetch_assessor_by_apn(apn):
         return {}
     digits = re.sub(r"[^0-9]", "", apn)
     apn_fmt = f"{digits[:3]}-{digits[3:5]}-{digits[5:]}" if len(digits) >= 8 else apn
-    # Try both APN and PARCEL_NO field names
-    result = _arcgis_query(f"APN='{apn_fmt}'", f"APN:{apn_fmt}")
-    if not result:
-        result = _arcgis_query(f"PARCEL_NO='{apn_fmt}'", f"APN2:{apn_fmt}")
-    return result
+
+    # Try search API first
+    try:
+        resp = requests.get(
+            ASSESSOR_SEARCH, params={"q": apn_fmt},
+            headers={"User-Agent": HEADERS["User-Agent"], "Accept": "application/json"},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            result = _parse_search_json(resp.json(), f"APN:{apn_fmt}")
+            if result:
+                return result
+    except Exception as e:
+        log.warning(f"Search API APN {apn_fmt}: {e}")
+
+    # Fallback: GIS MapServer
+    try:
+        resp = requests.get(
+            ASSESSOR_GEO,
+            params={"where": f"APN='{apn_fmt}'", "outFields": "*",
+                    "resultRecordCount": 1, "f": "json"},
+            headers={"User-Agent": HEADERS["User-Agent"]},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            return _parse_gis_json(resp.json(), f"GIS-APN:{apn_fmt}")
+    except Exception as e:
+        log.warning(f"GIS APN {apn_fmt}: {e}")
+
+    return {}
 
 
 def fetch_assessor_by_name(name):
-    """Look up property address by grantee/homeowner name via ArcGIS LIKE query."""
+    """Look up property address by grantee/homeowner name via search API."""
     name = (name or "").strip()
     if not name or len(name) < 5:
         return {}
-    # Skip companies — they're banks/servicers, not property owners
     skip = ("LLC","INC","CORP","TRUST","BANK","MORTGAGE","LOAN","SERVICING",
             "FINANCIAL","FUND","INVESTMENT","PROP","REAL ESTATE","VENTURE")
     if any(k in name.upper() for k in skip):
         return {}
-    # Use first two words of name for LIKE query (recorder format: LAST FIRST MI)
-    parts = name.split()
-    if len(parts) >= 2:
-        where = f"OWNER LIKE '%{parts[0]}%{parts[1]}%'"
-    else:
-        where = f"OWNER LIKE '%{parts[0]}%'"
-    return _arcgis_query(where, f"NAME:{name[:25]}")
+    try:
+        resp = requests.get(
+            ASSESSOR_SEARCH, params={"q": name},
+            headers={"User-Agent": HEADERS["User-Agent"], "Accept": "application/json"},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            return _parse_search_json(resp.json(), f"NAME:{name[:25]}")
+    except Exception as e:
+        log.warning(f"Search API name {name[:25]}: {e}")
+    return {}
 
 
 # ── Enrichment ─────────────────────────────────────────────────────
@@ -313,12 +360,10 @@ def enrich_names(records, workers=8):
         if detail["amount"] is not None:
             rec["amount"] = detail["amount"]
 
-        # Address: try APN first, then homeowner name
         addr = {}
         if detail["parcel"]:
             addr = fetch_assessor_by_apn(detail["parcel"])
         if not addr:
-            # For NOFC/LP the homeowner is in grantee; for other types try owner
             name = rec.get("grantee") or rec.get("owner", "")
             addr = fetch_assessor_by_name(name)
         if addr:
@@ -344,7 +389,6 @@ def score(rec, all_r):
     filed = rec.get("filed", "")
     lbl   = rec.get("cat_label", "").lower()
 
-    # Base score by document type
     if "trustees sale" in lbl or "foreclosure" in lbl:
         flags.append("Foreclosure"); s += 25
     elif "tax deed" in lbl:
@@ -364,11 +408,9 @@ def score(rec, all_r):
     elif "medical" in lbl:
         flags.append("Medical Lien"); s += 5
 
-    # Owner type
     if owner and any(k in owner.upper() for k in ("LLC","INC","CORP","TRUST","ESTATE","LP ","LLP")):
         flags.append("LLC / corp owner"); s += 10
 
-    # Recency
     try:
         age = (datetime.now().date() - datetime.strptime(filed, "%Y-%m-%d").date()).days
         if age <= 3:
@@ -378,7 +420,6 @@ def score(rec, all_r):
     except Exception:
         pass
 
-    # Amount
     if amt:
         if amt >= 200_000:
             flags.append(f"High debt ${amt:,.0f}"); s += 20
@@ -389,7 +430,6 @@ def score(rec, all_r):
         elif amt > 0:
             flags.append(f"Debt ${amt:,.0f}"); s += 5
 
-    # Address found
     if rec.get("prop_address") or rec.get("mail_address"):
         flags.append("Address found"); s += 5
 
@@ -487,8 +527,8 @@ def main():
     dfrom_iso = (today - timedelta(days=7)).strftime("%Y-%m-%d")
 
     log.info("=== Maricopa Motivated Seller Scraper ===")
-    log.info(f"Date range: {dfrom_iso} → {dto_iso}")
-    _probe_arcgis()
+    log.info(f"Date range: {dfrom_iso} -> {dto_iso}")
+    _probe_assessor()
 
     raw = scrape_all(dfrom_iso, dto_iso)
     log.info(f"Raw records: {len(raw)}")
