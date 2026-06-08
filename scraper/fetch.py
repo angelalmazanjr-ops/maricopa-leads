@@ -14,6 +14,7 @@ DATA_JSON      = REPO_ROOT / "data" / "records.json"
 SEARCH_API   = "https://publicapi.recorder.maricopa.gov/documents/search"
 DETAIL_API   = "https://publicapi.recorder.maricopa.gov/documents/{}"
 ASSESSOR_API = "https://mcassessor.maricopa.gov/mcs.php"
+ASSESSOR_GEO = "https://geo.maricopa.gov/arcgis/rest/services/Assessor/Assessor_Parcel_Information/FeatureServer/0/query"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -186,64 +187,87 @@ def fetch_detail(doc_num):
     return result
 
 
-# ── Assessor API — address from APN ────────────────────────────────
+# ── Assessor API — address lookup ──────────────────────────────────
 
-def fetch_assessor(apn):
-    """Return prop_address / prop_city / prop_zip for a given Maricopa APN."""
-    if not apn or len(re.sub(r"[^0-9]", "", apn)) < 7:
-        return {}
+def _parse_assessor_html(html, label=""):
+    """Extract address from Maricopa Assessor HTML response."""
+    if not hasattr(_parse_assessor_html, "_logged"):
+        _parse_assessor_html._logged = True
+        log.info(f"ASSESSOR HTML SAMPLE ({label}): {html[:600]}")
+    m = re.search(
+        r"(?:Site\s*Address|SITE_ADDR|Situs\s*Addr)[^<]*</[^>]+>\s*(?:<[^>]+>\s*)*([0-9][^<\n]{5,80})",
+        html, re.I)
+    if not m:
+        # Try table cell pattern: <td>123 Main St</td>
+        m = re.search(r"<td[^>]*>\s*(\d+\s+[A-Z][^<]{5,60}(?:DR|ST|AVE|LN|WAY|BLVD|RD|CT|PL|CIR)[^<]*)</td>", html, re.I)
+    if m:
+        addr = m.group(1).strip()
+        city_m = re.search(r"(?:Site\s*City|SITE_CITY|Situs\s*City)[^<]*</[^>]+>\s*(?:<[^>]+>\s*)*([A-Z][^<\n]{2,40})", html, re.I)
+        zip_m  = re.search(r"(?:Site\s*Zip|SITE_ZIP|Situs\s*Zip)[^<]*</[^>]+>\s*(?:<[^>]+>\s*)*(\d{5})", html, re.I)
+        return {
+            "prop_address": addr,
+            "prop_city":    city_m.group(1).strip() if city_m else "",
+            "prop_zip":     zip_m.group(1).strip()  if zip_m  else "",
+        }
+    return {}
+
+
+def _call_assessor(query, label=""):
+    """Call mcassessor.maricopa.gov/mcs.php with a query and return address dict."""
     try:
-        digits = re.sub(r"[^0-9]", "", apn)
-        # Format: 123-45-678 (3-2-3)
-        if len(digits) == 8:
-            apn_fmt = f"{digits[:3]}-{digits[3:5]}-{digits[5:]}"
-        elif len(digits) == 9:
-            apn_fmt = f"{digits[:3]}-{digits[3:5]}-{digits[5:]}"
-        else:
-            apn_fmt = apn
-
         resp = requests.get(
-            ASSESSOR_API,
-            params={"q": apn_fmt},
-            headers={"User-Agent": HEADERS["User-Agent"], "Accept": "application/json, */*"},
-            timeout=10,
+            ASSESSOR_API, params={"q": query},
+            headers={"User-Agent": HEADERS["User-Agent"], "Accept": "text/html,*/*"},
+            timeout=12,
         )
         if resp.status_code != 200:
             return {}
-
-        # Try JSON
+        # Try JSON first
         try:
             data = resp.json()
+            if not hasattr(_call_assessor, "_logged"):
+                _call_assessor._logged = True
+                log.info(f"ASSESSOR JSON SAMPLE ({label}): {json.dumps(data, default=str)[:400]}")
             item = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else {})
-            addr = (item.get("siteAddress") or item.get("address") or
-                    item.get("propertyAddress") or item.get("SITE_ADDR") or "").strip()
-            city = (item.get("siteCity") or item.get("city") or item.get("SITE_CITY") or "").strip()
-            zipcode = (item.get("siteZip") or item.get("zip") or item.get("zipCode") or
-                       item.get("SITE_ZIP") or "").strip()
+            # Handle ArcGIS feature wrapper
+            if "features" in item and item["features"]:
+                item = item["features"][0].get("attributes", {})
+            addr = (item.get("siteAddress") or item.get("SITE_ADDR") or item.get("address") or
+                    item.get("propertyAddress") or item.get("SITUS_ADDR") or "").strip()
+            city = (item.get("siteCity") or item.get("SITE_CITY") or item.get("city") or
+                    item.get("SITUS_CITY") or "").strip()
+            zipcode = (item.get("siteZip") or item.get("SITE_ZIP") or item.get("zip") or
+                       item.get("zipCode") or item.get("SITUS_ZIP") or "").strip()
             if addr:
                 return {"prop_address": addr, "prop_city": city, "prop_zip": zipcode}
         except ValueError:
             pass
-
-        # Fallback: parse HTML
-        html = resp.text
-        # Try common label patterns
-        for lbl_pat, field in [
-            (r"(?:Site\s+Address|SITE_ADDR)[^<]*</[^>]+>\s*<[^>]+>\s*([0-9][^<]{4,80})", "prop_address"),
-        ]:
-            m = re.search(lbl_pat, html, re.IGNORECASE)
-            if m:
-                addr = m.group(1).strip()
-                city_m = re.search(r"(?:Site\s+City|SITE_CITY)[^<]*</[^>]+>\s*<[^>]+>\s*([A-Z][^<]{2,40})", html, re.I)
-                zip_m  = re.search(r"(?:Site\s+Zip|SITE_ZIP)[^<]*</[^>]+>\s*<[^>]+>\s*(\d{5})", html, re.I)
-                return {
-                    "prop_address": addr,
-                    "prop_city":    city_m.group(1).strip() if city_m else "",
-                    "prop_zip":     zip_m.group(1).strip()  if zip_m  else "",
-                }
+        return _parse_assessor_html(resp.text, label)
     except Exception as e:
-        log.debug(f"Assessor {apn}: {e}")
+        log.debug(f"Assessor {label}: {e}")
     return {}
+
+
+def fetch_assessor_by_apn(apn):
+    """Look up property address by Maricopa APN (digits only, 8-9 chars)."""
+    if not apn or len(re.sub(r"[^0-9]", "", apn)) < 7:
+        return {}
+    digits = re.sub(r"[^0-9]", "", apn)
+    apn_fmt = f"{digits[:3]}-{digits[3:5]}-{digits[5:]}" if len(digits) >= 8 else apn
+    return _call_assessor(apn_fmt, f"APN:{apn_fmt}")
+
+
+def fetch_assessor_by_name(name):
+    """Look up property address by grantee/homeowner name."""
+    name = (name or "").strip()
+    if not name or len(name) < 5:
+        return {}
+    # Skip companies — they're banks/servicers, not property owners
+    skip = ("LLC","INC","CORP","TRUST","BANK","MORTGAGE","LOAN","SERVICING",
+            "FINANCIAL","FUND","INVESTMENT","PROP","REAL ESTATE","VENTURE")
+    if any(k in name.upper() for k in skip):
+        return {}
+    return _call_assessor(name, f"NAME:{name[:25]}")
 
 
 # ── Enrichment ─────────────────────────────────────────────────────
@@ -257,11 +281,17 @@ def enrich_names(records, workers=8):
         rec["grantee"] = detail["grantee"]
         if detail["amount"] is not None:
             rec["amount"] = detail["amount"]
-        parcel = detail["parcel"]
-        if parcel:
-            addr = fetch_assessor(parcel)
-            if addr:
-                rec.update(addr)
+
+        # Address: try APN first, then homeowner name
+        addr = {}
+        if detail["parcel"]:
+            addr = fetch_assessor_by_apn(detail["parcel"])
+        if not addr:
+            # For NOFC/LP the homeowner is in grantee; for other types try owner
+            name = rec.get("grantee") or rec.get("owner", "")
+            addr = fetch_assessor_by_name(name)
+        if addr:
+            rec.update(addr)
         return rec
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
