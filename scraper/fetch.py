@@ -183,17 +183,7 @@ def fetch_detail(doc_num):
 # ── Assessor API — address lookup ──────────────────────────────────
 
 def _probe_assessor():
-    """Probe both the search API and GIS service at startup."""
-    try:
-        resp = requests.get(
-            ASSESSOR_SEARCH, params={"q": "SMITH JOHN"},
-            headers={"User-Agent": HEADERS["User-Agent"], "Accept": "application/json"},
-            timeout=15,
-        )
-        log.info(f"SEARCH API PROBE status={resp.status_code}: {resp.text[:500]}")
-    except Exception as e:
-        log.warning(f"SEARCH API PROBE failed: {e}")
-
+    """Probe GIS service at startup and log actual field names from a real record."""
     try:
         resp = requests.get(
             ASSESSOR_GEO,
@@ -201,7 +191,11 @@ def _probe_assessor():
             headers={"User-Agent": HEADERS["User-Agent"]},
             timeout=15,
         )
-        log.info(f"GIS PROBE status={resp.status_code}: {resp.text[:500]}")
+        d = resp.json()
+        features = d.get("features", [])
+        attrs = features[0]["attributes"] if features else {}
+        log.info(f"GIS PROBE status={resp.status_code} field_names={list(attrs.keys())}")
+        log.info(f"GIS PROBE sample_record={json.dumps(attrs, default=str)}")
     except Exception as e:
         log.warning(f"GIS PROBE failed: {e}")
 
@@ -255,7 +249,7 @@ def _parse_gis_json(data, label=""):
     """Extract address dict from gis.mcassessor.maricopa.gov ArcGIS query JSON."""
     if not hasattr(_parse_gis_json, "_logged"):
         _parse_gis_json._logged = True
-        log.info(f"GIS SAMPLE ({label}): {json.dumps(data, default=str)[:600]}")
+        log.info(f"GIS PARSE SAMPLE ({label}): {json.dumps(data, default=str)[:800]}")
 
     if "error" in data:
         log.warning(f"GIS error ({label}): {data['error']}")
@@ -266,13 +260,29 @@ def _parse_gis_json(data, label=""):
         return {}
     attrs = features[0].get("attributes", {})
 
-    addr = (attrs.get("SITUS_ADDR") or attrs.get("SITE_ADDR") or
-            attrs.get("ADDRESS") or attrs.get("situs_addr") or "").strip()
-    city = (attrs.get("SITUS_CITY") or attrs.get("SITE_CITY") or "").strip()
-    zipcode = str(attrs.get("SITUS_ZIP") or attrs.get("SITE_ZIP") or "").strip().split(".")[0]
-    mail_addr  = (attrs.get("MAIL_ADDR") or attrs.get("MAILING_ADDR") or "").strip()
-    mail_city  = (attrs.get("MAIL_CITY") or "").strip()
-    mail_state = (attrs.get("MAIL_STATE") or "AZ").strip()
+    # Physical/situs address — built from parts (confirmed field names from probe)
+    num  = str(attrs.get("PHYSICAL_STREET_NUM") or "").strip()
+    dir_ = str(attrs.get("PHYSICAL_STREET_DIR") or "").strip()
+    name = str(attrs.get("PHYSICAL_STREET_NAME") or "").strip()
+    typ  = str(attrs.get("PHYSICAL_STREET_TYPE") or attrs.get("PHYSICAL_STREET_T") or "").strip()
+    addr = " ".join(filter(None, [num, dir_, name, typ])).strip()
+    # Also try legacy single-field names as fallback
+    if not addr:
+        addr = (attrs.get("SITUS_ADDR") or attrs.get("SITE_ADDR") or
+                attrs.get("ADDRESS") or "").strip()
+    city    = str(attrs.get("PHYSICAL_CITY") or attrs.get("SITUS_CITY") or
+                  attrs.get("SITE_CITY") or "").strip()
+    zipcode = str(attrs.get("PHYSICAL_ZIP") or attrs.get("SITUS_ZIP") or
+                  attrs.get("SITE_ZIP") or "").strip().split(".")[0]
+
+    # Mailing address (confirmed field names from probe)
+    mail_addr  = str(attrs.get("MAIL_ADDR1") or attrs.get("MAIL_ADDR") or
+                     attrs.get("MAILING_ADDR") or "").strip()
+    mail_addr2 = str(attrs.get("MAIL_ADDR2") or "").strip()
+    if mail_addr2:
+        mail_addr = f"{mail_addr} {mail_addr2}".strip()
+    mail_city  = str(attrs.get("MAIL_CITY") or "").strip()
+    mail_state = str(attrs.get("MAIL_STATE") or "AZ").strip()
     mail_zip   = str(attrs.get("MAIL_ZIP") or "").strip().split(".")[0]
 
     result = {}
@@ -289,27 +299,12 @@ def _parse_gis_json(data, label=""):
 
 
 def fetch_assessor_by_apn(apn):
-    """Look up property address by Maricopa APN."""
+    """Look up property address by Maricopa APN via GIS."""
     if not apn or len(re.sub(r"[^0-9]", "", apn)) < 7:
         return {}
     digits = re.sub(r"[^0-9]", "", apn)
     apn_fmt = f"{digits[:3]}-{digits[3:5]}-{digits[5:]}" if len(digits) >= 8 else apn
 
-    # Try search API first
-    try:
-        resp = requests.get(
-            ASSESSOR_SEARCH, params={"q": apn_fmt},
-            headers={"User-Agent": HEADERS["User-Agent"], "Accept": "application/json"},
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            result = _parse_search_json(resp.json(), f"APN:{apn_fmt}")
-            if result:
-                return result
-    except Exception as e:
-        log.warning(f"Search API APN {apn_fmt}: {e}")
-
-    # Fallback: GIS MapServer
     try:
         resp = requests.get(
             ASSESSOR_GEO,
@@ -327,24 +322,40 @@ def fetch_assessor_by_apn(apn):
 
 
 def fetch_assessor_by_name(name):
-    """Look up property address by grantee/homeowner name via search API."""
+    """Look up property address by owner name via GIS OWNER_NAME field."""
     name = (name or "").strip()
     if not name or len(name) < 5:
         return {}
     skip = ("LLC","INC","CORP","TRUST","BANK","MORTGAGE","LOAN","SERVICING",
-            "FINANCIAL","FUND","INVESTMENT","PROP","REAL ESTATE","VENTURE")
+            "FINANCIAL","FUND","INVESTMENT","PROP","REAL ESTATE","VENTURE",
+            "HOMEOWNERS","ASSOCIATION","HOA","CREDIT UNION","FEDERAL")
     if any(k in name.upper() for k in skip):
         return {}
+
+    # Build a multi-word LIKE filter for better precision
+    words = [w for w in name.upper().split() if len(w) > 2 and w not in ("AND","THE","FOR","JR","SR","II","III")]
+    if not words:
+        return {}
+    safe = name.upper().replace("'", "''")
+    # Use first two significant words if available
+    if len(words) >= 2:
+        w1, w2 = words[0].replace("'","''"), words[1].replace("'","''")
+        where = f"UPPER(OWNER_NAME) LIKE '%{w1}%' AND UPPER(OWNER_NAME) LIKE '%{w2}%'"
+    else:
+        w1 = words[0].replace("'","''")
+        where = f"UPPER(OWNER_NAME) LIKE '%{w1}%'"
+
     try:
         resp = requests.get(
-            ASSESSOR_SEARCH, params={"q": name},
-            headers={"User-Agent": HEADERS["User-Agent"], "Accept": "application/json"},
+            ASSESSOR_GEO,
+            params={"where": where, "outFields": "*", "resultRecordCount": 1, "f": "json"},
+            headers={"User-Agent": HEADERS["User-Agent"]},
             timeout=15,
         )
         if resp.status_code == 200:
-            return _parse_search_json(resp.json(), f"NAME:{name[:25]}")
+            return _parse_gis_json(resp.json(), f"GIS-NAME:{name[:25]}")
     except Exception as e:
-        log.warning(f"Search API name {name[:25]}: {e}")
+        log.warning(f"GIS name {name[:25]}: {e}")
     return {}
 
 
