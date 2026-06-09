@@ -1,631 +1,582 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Maricopa County – Motivated Seller Leads</title>
-<style>
-  /* ── Reset & Base ───────────────────────────────────────────────── */
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html { font-size: 15px; }
-  body {
-    font-family: "Inter", "Segoe UI", system-ui, sans-serif;
-    background: #0f172a;
-    color: #e2e8f0;
-    min-height: 100vh;
-  }
+import csv, concurrent.futures, json, logging, os, re, time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-  /* ── Layout ─────────────────────────────────────────────────────── */
-  header {
-    background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
-    border-bottom: 1px solid #1e40af44;
-    padding: 1.25rem 2rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-  .logo { display: flex; align-items: center; gap: .75rem; }
-  .logo svg { width: 36px; height: 36px; flex-shrink: 0; }
-  .logo h1 { font-size: 1.25rem; font-weight: 700; color: #f0f9ff; }
-  .logo small { display: block; font-size: .72rem; color: #94a3b8; font-weight: 400; }
+import requests
 
-  .header-meta { font-size: .78rem; color: #64748b; text-align: right; }
-  .header-meta strong { color: #38bdf8; }
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+log = logging.getLogger(__name__)
 
-  main { max-width: 1600px; margin: 0 auto; padding: 1.5rem 1.5rem 4rem; }
+REPO_ROOT      = Path(__file__).parent.parent
+DASHBOARD_JSON = REPO_ROOT / "dashboard" / "records.json"
+DATA_JSON      = REPO_ROOT / "data" / "records.json"
 
-  /* ── KPI Cards ──────────────────────────────────────────────────── */
-  .kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: .9rem;
-    margin-bottom: 1.5rem;
-  }
-  .kpi {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: .75rem;
-    padding: 1rem 1.25rem;
-    transition: border-color .2s;
-  }
-  .kpi:hover { border-color: #3b82f6; }
-  .kpi .label { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: #64748b; margin-bottom: .35rem; }
-  .kpi .value { font-size: 1.9rem; font-weight: 800; color: #f0f9ff; line-height: 1; }
-  .kpi .sub   { font-size: .7rem; color: #94a3b8; margin-top: .2rem; }
+SEARCH_API      = "https://publicapi.recorder.maricopa.gov/documents/search"
+DETAIL_API      = "https://publicapi.recorder.maricopa.gov/documents/{}"
+ASSESSOR_SEARCH = "https://mcassessor.maricopa.gov/search/property/"
+ASSESSOR_GEO    = "https://gis.mcassessor.maricopa.gov/arcgis/rest/services/Parcels/MapServer/0/query"
 
-  /* ── Toolbar ────────────────────────────────────────────────────── */
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: .65rem;
-    margin-bottom: 1.1rem;
-    flex-wrap: wrap;
-  }
-  input[type="search"] {
-    flex: 1;
-    min-width: 200px;
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: .5rem;
-    color: #e2e8f0;
-    padding: .5rem .9rem;
-    font-size: .85rem;
-    outline: none;
-    transition: border-color .2s;
-  }
-  input[type="search"]:focus { border-color: #3b82f6; }
-
-  select, button {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: .5rem;
-    color: #e2e8f0;
-    padding: .5rem .85rem;
-    font-size: .82rem;
-    cursor: pointer;
-    outline: none;
-    transition: background .15s, border-color .2s;
-  }
-  select:hover, button:hover { background: #273548; border-color: #3b82f6; }
-
-  .btn-primary {
-    background: #1d4ed8;
-    border-color: #2563eb;
-    color: #fff;
-    font-weight: 600;
-  }
-  .btn-primary:hover { background: #2563eb; }
-
-  .btn-export {
-    background: #065f46;
-    border-color: #059669;
-    color: #d1fae5;
-    font-weight: 600;
-  }
-  .btn-export:hover { background: #047857; }
-
-  /* ── Table ──────────────────────────────────────────────────────── */
-  .table-wrap {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: .75rem;
-    overflow-x: auto;
-  }
-  table { width: 100%; border-collapse: collapse; font-size: .8rem; }
-  thead tr { background: #0f172a; border-bottom: 2px solid #334155; }
-  thead th {
-    padding: .65rem .9rem;
-    text-align: left;
-    font-weight: 600;
-    color: #94a3b8;
-    white-space: nowrap;
-    cursor: pointer;
-    user-select: none;
-    transition: color .15s;
-  }
-  thead th:hover { color: #38bdf8; }
-  thead th .sort-icon { margin-left: .25rem; opacity: .4; }
-  thead th.sorted    .sort-icon { opacity: 1; color: #38bdf8; }
-
-  tbody tr { border-bottom: 1px solid #1e293b88; transition: background .12s; }
-  tbody tr:hover { background: #263248; }
-  tbody td { padding: .55rem .9rem; vertical-align: middle; }
-
-  .score-pill {
-    display: inline-block;
-    padding: .15rem .55rem;
-    border-radius: 9999px;
-    font-weight: 700;
-    font-size: .73rem;
-    letter-spacing: .02em;
-    min-width: 38px;
-    text-align: center;
-  }
-  .score-high   { background: #7f1d1d33; color: #fca5a5; border: 1px solid #991b1b55; }
-  .score-med    { background: #78350f33; color: #fcd34d; border: 1px solid #92400e55; }
-  .score-low    { background: #14532d33; color: #86efac; border: 1px solid #15803d55; }
-
-  .doc-badge {
-    display: inline-block;
-    padding: .12rem .5rem;
-    border-radius: .35rem;
-    font-size: .7rem;
-    font-weight: 700;
-    background: #1e3a5f;
-    color: #7dd3fc;
-    border: 1px solid #1e40af44;
-    white-space: nowrap;
-  }
-  .doc-LP     { background: #4c1d9544; color: #c4b5fd; border-color: #5b21b655; }
-  .doc-NOFC   { background: #7f1d1d44; color: #fca5a5; border-color: #991b1b55; }
-  .doc-TAXDEED{ background: #78350f44; color: #fcd34d; border-color: #92400e55; }
-  .doc-JUD    { background: #14532d44; color: #6ee7b7; border-color: #15803d55; }
-  .doc-LN     { background: #1e3a5f44; color: #93c5fd; border-color: #1e40af55; }
-  .doc-PRO    { background: #831843aa; color: #f9a8d4; border-color: #9d174d55; }
-
-  .flags-cell { max-width: 220px; }
-  .flag-chip {
-    display: inline-block;
-    padding: .08rem .42rem;
-    border-radius: .3rem;
-    font-size: .64rem;
-    background: #1e3a5f;
-    color: #93c5fd;
-    border: 1px solid #1e40af33;
-    margin: .05rem .05rem;
-    white-space: nowrap;
-  }
-
-  .addr-cell { max-width: 200px; font-size: .75rem; color: #94a3b8; line-height: 1.4; }
-  .owner-cell { max-width: 180px; font-weight: 600; color: #e2e8f0; }
-
-  td a { color: #38bdf8; text-decoration: none; }
-  td a:hover { text-decoration: underline; }
-
-  .amount-cell { font-weight: 600; color: #fcd34d; white-space: nowrap; }
-
-  /* ── Pagination ─────────────────────────────────────────────────── */
-  .pagination {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: .9rem;
-    gap: .5rem;
-    flex-wrap: wrap;
-    font-size: .8rem;
-    color: #64748b;
-  }
-  .page-btns { display: flex; gap: .35rem; }
-  .page-btns button { padding: .35rem .75rem; min-width: 36px; }
-  .page-btns button.active { background: #1d4ed8; border-color: #2563eb; color: #fff; }
-
-  /* ── Empty state ────────────────────────────────────────────────── */
-  .empty {
-    text-align: center;
-    padding: 4rem 1rem;
-    color: #475569;
-  }
-  .empty svg { width: 56px; height: 56px; margin-bottom: 1rem; opacity: .3; }
-  .empty p { font-size: 1rem; }
-
-  /* ── Responsive ─────────────────────────────────────────────────── */
-  @media (max-width: 640px) {
-    header { padding: 1rem; }
-    main   { padding: 1rem; }
-    .kpi .value { font-size: 1.4rem; }
-    thead th:nth-child(n+5) { display: none; }
-    tbody td:nth-child(n+5) { display: none; }
-  }
-</style>
-</head>
-<body>
-
-<header>
-  <div class="logo">
-    <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="36" height="36" rx="8" fill="#1d4ed8"/>
-      <path d="M10 26 L18 10 L26 26" stroke="#f0f9ff" stroke-width="2.5" stroke-linejoin="round" fill="none"/>
-      <path d="M13 21 H23" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/>
-    </svg>
-    <div>
-      <h1>Motivated Seller Leads</h1>
-      <small>Maricopa County Public Records · Auto-updated daily</small>
-    </div>
-  </div>
-  <div class="header-meta">
-    Last updated: <strong id="fetchedAt">—</strong><br>
-    Date range: <strong id="dateRange">—</strong>
-  </div>
-</header>
-
-<main>
-  <!-- KPI row -->
-  <div class="kpi-grid">
-    <div class="kpi">
-      <div class="label">Total Leads</div>
-      <div class="value" id="kpiTotal">0</div>
-      <div class="sub">in selected range</div>
-    </div>
-    <div class="kpi">
-      <div class="label">With Address</div>
-      <div class="value" id="kpiAddr">0</div>
-      <div class="sub">mailable records</div>
-    </div>
-    <div class="kpi">
-      <div class="label">High Score ≥70</div>
-      <div class="value" id="kpiHigh">0</div>
-      <div class="sub">hottest leads</div>
-    </div>
-    <div class="kpi">
-      <div class="label">Lis Pendens</div>
-      <div class="value" id="kpiLP">0</div>
-      <div class="sub">pre-foreclosure</div>
-    </div>
-    <div class="kpi">
-      <div class="label">Foreclosure</div>
-      <div class="value" id="kpiNOFC">0</div>
-      <div class="sub">NOFC filings</div>
-    </div>
-    <div class="kpi">
-      <div class="label">Probate</div>
-      <div class="value" id="kpiPRO">0</div>
-      <div class="sub">estate filings</div>
-    </div>
-    <div class="kpi">
-      <div class="label">Liens</div>
-      <div class="value" id="kpiLN">0</div>
-      <div class="sub">all lien types</div>
-    </div>
-    <div class="kpi">
-      <div class="label">Tax / IRS</div>
-      <div class="value" id="kpiTAX">0</div>
-      <div class="sub">tax-related</div>
-    </div>
-  </div>
-
-  <!-- Toolbar -->
-  <div class="toolbar">
-    <input type="search" id="searchBox" placeholder="🔍  Search owner, doc #, address, flag…" />
-
-    <select id="filterType">
-      <option value="">All Document Types</option>
-      <option value="LP">Lis Pendens</option>
-      <option value="NOFC">Notice of Foreclosure</option>
-      <option value="TAXDEED">Tax Deed</option>
-      <option value="JUD">Judgment</option>
-      <option value="CCJ">Certified Judgment</option>
-      <option value="DRJUD">Domestic Judgment</option>
-      <option value="LNCORPTX">Corp Tax Lien</option>
-      <option value="LNIRS">IRS Lien</option>
-      <option value="LNFED">Federal Lien</option>
-      <option value="LN">Lien</option>
-      <option value="LNMECH">Mechanic Lien</option>
-      <option value="LNHOA">HOA Lien</option>
-      <option value="MEDLN">Medicaid Lien</option>
-      <option value="PRO">Probate</option>
-      <option value="NOC">Notice of Commencement</option>
-      <option value="RELLP">Release Lis Pendens</option>
-    </select>
-
-    <select id="filterScore">
-      <option value="0">All Scores</option>
-      <option value="70">Score ≥ 70 (Hot)</option>
-      <option value="50">Score ≥ 50 (Warm)</option>
-      <option value="30">Score ≥ 30</option>
-    </select>
-
-    <select id="filterAddr">
-      <option value="">Any Address</option>
-      <option value="1">Has Address Only</option>
-    </select>
-
-    <select id="sortBy">
-      <option value="score">Sort: Score ↓</option>
-      <option value="filed">Sort: Date Filed ↓</option>
-      <option value="amount">Sort: Amount ↓</option>
-      <option value="owner">Sort: Owner A-Z</option>
-    </select>
-
-    <button class="btn-export" id="btnExport">⬇ Export CSV</button>
-    <button class="btn-primary" id="btnRefresh">↺ Reload Data</button>
-  </div>
-
-  <!-- Table -->
-  <div class="table-wrap">
-    <table id="leadsTable">
-      <thead>
-        <tr>
-          <th data-col="score" class="sorted">Score <span class="sort-icon">▼</span></th>
-          <th data-col="doc_type">Type</th>
-          <th data-col="filed">Filed</th>
-          <th data-col="owner">Owner / Grantor</th>
-          <th data-col="prop_address">Property Address</th>
-          <th data-col="mail_address">Mailing Address</th>
-          <th data-col="amount">Amount</th>
-          <th data-col="flags">Flags</th>
-          <th data-col="doc_num">Doc #</th>
-        </tr>
-      </thead>
-      <tbody id="tableBody">
-        <tr><td colspan="9">
-          <div class="empty">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12h6m-3-3v6M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            <p>Loading records…</p>
-          </div>
-        </td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- Pagination -->
-  <div class="pagination">
-    <span id="pageInfo">Showing 0 of 0 records</span>
-    <div class="page-btns" id="pageBtns"></div>
-  </div>
-</main>
-
-<script>
-/* ================================================================
-   Dashboard JS
-   ================================================================ */
-const PAGE_SIZE = 50;
-let allRecords  = [];
-let filtered    = [];
-let currentPage = 1;
-let sortCol     = "score";
-let sortDir     = -1;   // -1 = desc
-
-// ── Load data ────────────────────────────────────────────────────
-async function loadData() {
-  try {
-    const r = await fetch("records.json?" + Date.now());
-    if (!r.ok) throw new Error(r.statusText);
-    const data = await r.json();
-
-    document.getElementById("fetchedAt").textContent =
-      data.fetched_at ? new Date(data.fetched_at).toLocaleString() : "—";
-    document.getElementById("dateRange").textContent =
-      data.date_range ? `${data.date_range.from} → ${data.date_range.to}` : "—";
-
-    allRecords = data.records || [];
-    applyFilters();
-    updateKPIs(data);
-  } catch (e) {
-    document.getElementById("tableBody").innerHTML = `
-      <tr><td colspan="9"><div class="empty">
-        <p>⚠ Could not load records.json — ${e.message}</p>
-        <p style="font-size:.75rem;margin-top:.5rem;color:#64748b;">
-          Run the scraper first, or check the file path.
-        </p>
-      </div></td></tr>`;
-  }
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Referer": "https://recorder.maricopa.gov/",
+    "Origin": "https://recorder.maricopa.gov",
+    "Accept": "application/json, text/plain, */*",
 }
 
-// ── KPIs ─────────────────────────────────────────────────────────
-function updateKPIs(data) {
-  const recs = allRecords;
-  set("kpiTotal", recs.length);
-  set("kpiAddr",  recs.filter(r => r.prop_address || r.mail_address).length);
-  set("kpiHigh",  recs.filter(r => r.score >= 70).length);
-  set("kpiLP",    recs.filter(r => r.doc_type === "LP").length);
-  set("kpiNOFC",  recs.filter(r => r.doc_type === "NOFC").length);
-  set("kpiPRO",   recs.filter(r => r.doc_type === "PRO").length);
-  set("kpiLN",    recs.filter(r => ["LN","LNMECH","LNHOA","LNIRS","LNFED","LNCORPTX","MEDLN"].includes(r.doc_type)).length);
-  set("kpiTAX",   recs.filter(r => ["TAXDEED","LNIRS","LNCORPTX","LNFED"].includes(r.doc_type)).length);
-}
-function set(id, val) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = val.toLocaleString();
+DOC_CODE_MAPPING = {
+    "LP": "LP",      "NS": "NOFC",   "JG": "JUD",
+    "FL": "LNFED",   "SL": "SL",     "ML": "LNMECH",
+    "LN": "LN",      "HL": "MEDLN",  "PJ": "PRO",
+    "TD": "TAXDEED",
 }
 
-// ── Filter + Sort ─────────────────────────────────────────────────
-function applyFilters() {
-  const q    = document.getElementById("searchBox").value.trim().toLowerCase();
-  const type = document.getElementById("filterType").value;
-  const minScore = parseInt(document.getElementById("filterScore").value) || 0;
-  const addrOnly = document.getElementById("filterAddr").value === "1";
+DOC_CODE_LABELS = {
+    "LP": "Lis Pendens",         "NS": "Notice of Trustees Sale",
+    "JG": "Judgment",            "FL": "Federal Tax Lien",
+    "SL": "State Tax Lien",      "ML": "Mechanic Lien",
+    "LN": "Liens",               "HL": "Medical Lien",
+    "PJ": "Probate",             "TD": "Tax Deed",
+}
 
-  filtered = allRecords.filter(r => {
-    if (type && r.doc_type !== type) return false;
-    if (r.score < minScore) return false;
-    if (addrOnly && !r.prop_address && !r.mail_address) return false;
-    if (q) {
-      const hay = [r.owner, r.doc_num, r.prop_address, r.mail_address,
-                   r.doc_type, r.cat_label, (r.flags||[]).join(" "), r.legal]
-                  .join(" ").toLowerCase();
-      if (!hay.includes(q)) return false;
+
+# ── Search API ──────────────────────────────────────────────────────
+
+def fetch_code(code, begin_date, end_date):
+    records, page = [], 1
+    doc_type  = DOC_CODE_MAPPING.get(code, code)
+    cat_label = DOC_CODE_LABELS.get(code, code)
+
+    while True:
+        params = {
+            "businessNames": "", "firstNames": "", "lastNames": "",
+            "middleNameIs": "", "documentCode": code,
+            "beginDate": begin_date, "endDate": end_date,
+            "pageSize": 20, "pageNumber": page, "maxResults": 500,
+        }
+        try:
+            resp = requests.get(SEARCH_API, params=params, headers=HEADERS, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            log.error(f"Code {code} page {page}: {e}")
+            break
+
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            items = None
+            for key in ("searchResults", "results", "documents", "items", "data", "records"):
+                if key in data and isinstance(data[key], list):
+                    items = data[key]
+                    break
+            if items is None:
+                if "recordingNumber" in data:
+                    items = [data]
+                else:
+                    log.warning(f"Code {code} page {page}: unknown shape — keys: {list(data.keys())}")
+                    items = []
+        else:
+            items = []
+
+        if not items:
+            break
+
+        for item in items:
+            doc_num = str(item.get("recordingNumber", "")).strip()
+            if not doc_num:
+                continue
+            suffix = item.get("recordingSuffix", "").strip()
+            if suffix:
+                doc_num = f"{doc_num}-{suffix}"
+            records.append({
+                "doc_num":    doc_num,
+                "doc_type":   doc_type,
+                "cat":        code,
+                "cat_label":  cat_label,
+                "filed":      _nd(item.get("recordingDate", "")),
+                "owner":      "",
+                "grantee":    "",
+                "amount":     None,
+                "clerk_url":  f"https://recorder.maricopa.gov/recording/document-search-results.html?recordingNumber={doc_num}",
+                "prop_address": "", "prop_city": "", "prop_state": "AZ", "prop_zip": "",
+                "mail_address": "", "mail_city": "", "mail_state": "AZ", "mail_zip": "",
+            })
+
+        log.info(f"Code {code} page {page}: +{len(items)} (total {len(records)})")
+        if len(items) < 20:
+            break
+        page += 1
+        time.sleep(0.3)
+
+    return records
+
+
+def scrape_all(begin_date, end_date):
+    all_results = []
+    for code in ["LP", "NS", "JG", "FL", "SL", "ML", "LN", "HL", "PJ", "TD"]:
+        results = fetch_code(code, begin_date, end_date)
+        log.info(f"=== Code {code}: {len(results)} records ===")
+        all_results.extend(results)
+        time.sleep(0.3)
+    return all_results
+
+
+# ── Detail API ─────────────────────────────────────────────────────
+
+def fetch_detail(doc_num):
+    result = {"owner": "", "grantee": "", "amount": None, "parcel": ""}
+    try:
+        resp = requests.get(DETAIL_API.format(doc_num), headers=HEADERS, timeout=15)
+        if resp.status_code != 200:
+            return result
+        data = resp.json()
+
+        if not hasattr(fetch_detail, "_logged"):
+            fetch_detail._logged = True
+            log.info(f"DETAIL SAMPLE for {doc_num}: {json.dumps(data, default=str)[:500]}")
+
+        names = data.get("names", [])
+        if isinstance(names, list) and names:
+            result["owner"]   = str(names[0]).strip()
+            result["grantee"] = str(names[1]).strip() if len(names) > 1 else ""
+        elif isinstance(names, str) and names.strip():
+            result["owner"] = names.strip()
+        if not result["owner"]:
+            for k in ("grantor", "grantorName", "grantorNames"):
+                v = data.get(k)
+                if v: result["owner"] = str(v).strip(); break
+        if not result["grantee"]:
+            for k in ("grantee", "granteeName", "granteeNames"):
+                v = data.get(k)
+                if v: result["grantee"] = str(v).strip(); break
+
+        for key in ("consideration", "considerationAmount", "amount",
+                    "lienAmount", "debtAmount", "totalAmount", "balance"):
+            val = data.get(key)
+            if val is not None:
+                amt = _pa(str(val))
+                if amt:
+                    result["amount"] = amt
+                    break
+
+        for key in ("parcelNumber", "apn", "assessorParcelNumber",
+                    "taxParcelNumber", "parcel", "parcelNum"):
+            val = data.get(key)
+            if val and str(val).strip():
+                result["parcel"] = re.sub(r"[^0-9A-Za-z]", "", str(val))
+                break
+
+        if not result["parcel"]:
+            legal = ""
+            for key in ("legalDescription", "legal", "description", "legalDesc"):
+                legal = data.get(key) or ""
+                if legal: break
+            m = re.search(r"\b(\d{3})-(\d{2})-(\d{3}[A-Z]?)\b", legal)
+            if m:
+                result["parcel"] = m.group(1) + m.group(2) + m.group(3)
+
+    except Exception as e:
+        log.debug(f"Detail {doc_num}: {e}")
+    return result
+
+
+# ── Assessor API — address lookup ──────────────────────────────────
+
+def _probe_assessor():
+    """Probe GIS service at startup and log actual field names from a real record."""
+    try:
+        resp = requests.get(
+            ASSESSOR_GEO,
+            params={"where": "1=1", "outFields": "*", "resultRecordCount": 1, "f": "json"},
+            headers={"User-Agent": HEADERS["User-Agent"]},
+            timeout=15,
+        )
+        d = resp.json()
+        features = d.get("features", [])
+        attrs = features[0]["attributes"] if features else {}
+        log.info(f"GIS PROBE status={resp.status_code} field_names={list(attrs.keys())}")
+        log.info(f"GIS PROBE sample_record={json.dumps(attrs, default=str)}")
+    except Exception as e:
+        log.warning(f"GIS PROBE failed: {e}")
+
+
+def _parse_search_json(data, label=""):
+    """Extract address dict from mcassessor.maricopa.gov/search/property/ JSON."""
+    if not hasattr(_parse_search_json, "_logged"):
+        _parse_search_json._logged = True
+        log.info(f"SEARCH API SAMPLE ({label}): {json.dumps(data, default=str)[:600]}")
+
+    parcels = []
+    for key in ("Real Property", "real_property", "realProperty", "parcels", "results"):
+        v = data.get(key)
+        if isinstance(v, list) and v:
+            parcels = v
+            break
+    if not parcels and isinstance(data, list):
+        parcels = data
+    if not parcels:
+        return {}
+
+    p = parcels[0]
+    addr = (p.get("siteAddress") or p.get("site_address") or p.get("address") or
+            p.get("SITE_ADDR") or p.get("situs") or p.get("propertyAddress") or "").strip()
+    city = (p.get("siteCity") or p.get("site_city") or p.get("city") or
+            p.get("SITE_CITY") or "").strip()
+    zipcode = str(p.get("siteZip") or p.get("site_zip") or
+                  p.get("zip") or p.get("SITE_ZIP") or "").strip().split(".")[0]
+    mail_addr  = (p.get("mailingAddress") or p.get("mailing_address") or
+                  p.get("mailAddress") or p.get("mail_address") or "").strip()
+    mail_city  = (p.get("mailingCity") or p.get("mailing_city") or
+                  p.get("mailCity") or "").strip()
+    mail_state = (p.get("mailingState") or p.get("mailing_state") or "AZ").strip()
+    mail_zip   = str(p.get("mailingZip") or p.get("mailing_zip") or
+                     p.get("mailZip") or "").strip().split(".")[0]
+
+    result = {}
+    if addr:
+        result["prop_address"] = addr
+        result["prop_city"]    = city
+        result["prop_zip"]     = zipcode
+    if mail_addr:
+        result["mail_address"] = mail_addr
+        result["mail_city"]    = mail_city
+        result["mail_state"]   = mail_state
+        result["mail_zip"]     = mail_zip
+    return result
+
+
+def _parse_gis_json(data, label=""):
+    """Extract address dict from gis.mcassessor.maricopa.gov ArcGIS query JSON."""
+    if not hasattr(_parse_gis_json, "_logged"):
+        _parse_gis_json._logged = True
+        log.info(f"GIS PARSE SAMPLE ({label}): {json.dumps(data, default=str)[:800]}")
+
+    if "error" in data:
+        log.warning(f"GIS error ({label}): {data['error']}")
+        return {}
+
+    features = data.get("features", [])
+    if not features:
+        return {}
+    attrs = features[0].get("attributes", {})
+
+    # Physical address — try pre-built field first, then build from parts
+    addr = str(attrs.get("PHYSICAL_ADDRESS") or "").strip()
+    if not addr:
+        num  = str(attrs.get("PHYSICAL_STREET_NUM") or "").strip()
+        dir_ = str(attrs.get("PHYSICAL_STREET_DIR") or "").strip()
+        name = str(attrs.get("PHYSICAL_STREET_NAME") or "").strip()
+        typ  = str(attrs.get("PHYSICAL_STREET_TYPE") or "").strip()
+        suf  = str(attrs.get("PHYSICAL_STREET_SUFFIX") or "").strip()
+        addr = " ".join(filter(None, [num, dir_, name, typ, suf])).strip()
+    # Legacy fallback
+    if not addr:
+        addr = (attrs.get("SITUS_ADDR") or attrs.get("SITE_ADDR") or "").strip()
+    city    = str(attrs.get("PHYSICAL_CITY") or attrs.get("SITUS_CITY") or "").strip()
+    zipcode = str(attrs.get("PHYSICAL_ZIP") or attrs.get("SITUS_ZIP") or "").strip().split(".")[0]
+
+    # Mailing address — try pre-built MAIL_ADDRESS first, then individual fields
+    mail_full  = str(attrs.get("MAIL_ADDRESS") or "").strip()
+    mail_addr  = str(attrs.get("MAIL_ADDR1") or attrs.get("MAIL_ADDR") or "").strip()
+    mail_addr2 = str(attrs.get("MAIL_ADDR2") or "").strip()
+    if not mail_addr and mail_full:
+        mail_addr = mail_full  # use combined as fallback
+    elif mail_addr2:
+        mail_addr = f"{mail_addr} {mail_addr2}".strip()
+    mail_city  = str(attrs.get("MAIL_CITY") or "").strip()
+    mail_state = str(attrs.get("MAIL_STATE") or "AZ").strip()
+    mail_zip   = str(attrs.get("MAIL_ZIP") or "").strip().split(".")[0]
+
+    # Property value from assessor (FCV = Full Cash Value, fallback to sale price)
+    prop_value = None
+    for vk in ("FCV_CUR", "SALE_PRICE", "LPV_CUR"):
+        v = attrs.get(vk)
+        if v and str(v).strip() not in ("", "0", "None", "null"):
+            fv = _pa(str(v))  # handles "99,400" or "  99400  " etc.
+            if fv and fv > 0:
+                prop_value = fv
+                break
+
+    result = {}
+    if addr:
+        result["prop_address"] = addr
+        result["prop_city"]    = city
+        result["prop_zip"]     = zipcode
+    if mail_addr:
+        result["mail_address"] = mail_addr
+        result["mail_city"]    = mail_city
+        result["mail_state"]   = mail_state
+        result["mail_zip"]     = mail_zip
+    if prop_value:
+        result["prop_value"] = prop_value
+    return result
+
+
+def fetch_assessor_by_apn(apn):
+    """Look up property address by Maricopa APN via GIS."""
+    if not apn or len(re.sub(r"[^0-9]", "", apn)) < 7:
+        return {}
+    digits = re.sub(r"[^0-9]", "", apn)
+    apn_fmt = f"{digits[:3]}-{digits[3:5]}-{digits[5:]}" if len(digits) >= 8 else apn
+
+    try:
+        resp = requests.get(
+            ASSESSOR_GEO,
+            params={"where": f"APN='{apn_fmt}'", "outFields": "*",
+                    "resultRecordCount": 1, "f": "json"},
+            headers={"User-Agent": HEADERS["User-Agent"]},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            return _parse_gis_json(resp.json(), f"GIS-APN:{apn_fmt}")
+    except Exception as e:
+        log.warning(f"GIS APN {apn_fmt}: {e}")
+
+    return {}
+
+
+def fetch_assessor_by_name(name):
+    """Look up property address by owner name via GIS OWNER_NAME field."""
+    name = (name or "").strip()
+    if not name or len(name) < 5:
+        return {}
+    skip = ("LLC","INC","CORP","TRUST","BANK","MORTGAGE","LOAN","SERVICING",
+            "FINANCIAL","FUND","INVESTMENT","PROP","REAL ESTATE","VENTURE",
+            "HOMEOWNERS","ASSOCIATION","HOA","CREDIT UNION","FEDERAL")
+    if any(k in name.upper() for k in skip):
+        return {}
+
+    # Build a multi-word LIKE filter for better precision
+    words = [w for w in name.upper().split() if len(w) > 2 and w not in ("AND","THE","FOR","JR","SR","II","III")]
+    if not words:
+        return {}
+    safe = name.upper().replace("'", "''")
+    # Use first two significant words if available
+    if len(words) >= 2:
+        w1, w2 = words[0].replace("'","''"), words[1].replace("'","''")
+        where = f"UPPER(OWNER_NAME) LIKE '%{w1}%' AND UPPER(OWNER_NAME) LIKE '%{w2}%'"
+    else:
+        w1 = words[0].replace("'","''")
+        where = f"UPPER(OWNER_NAME) LIKE '%{w1}%'"
+
+    try:
+        resp = requests.get(
+            ASSESSOR_GEO,
+            params={"where": where, "outFields": "*", "resultRecordCount": 1, "f": "json"},
+            headers={"User-Agent": HEADERS["User-Agent"]},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            return _parse_gis_json(resp.json(), f"GIS-NAME:{name[:25]}")
+    except Exception as e:
+        log.warning(f"GIS name {name[:25]}: {e}")
+    return {}
+
+
+# ── Enrichment ─────────────────────────────────────────────────────
+
+def enrich_names(records, workers=8):
+    log.info(f"Enriching {len(records)} records ({workers} workers)...")
+
+    def worker(rec):
+        detail = fetch_detail(rec["doc_num"])
+        rec["owner"]   = detail["owner"]
+        rec["grantee"] = detail["grantee"]
+        if detail["amount"] is not None:
+            rec["amount"] = detail["amount"]
+
+        addr = {}
+        if detail["parcel"]:
+            addr = fetch_assessor_by_apn(detail["parcel"])
+        if not addr:
+            name = rec.get("grantee") or rec.get("owner", "")
+            addr = fetch_assessor_by_name(name)
+        if addr:
+            rec.update(addr)
+            # Use assessed property value as amount if recorder didn't provide one
+            if rec.get("amount") is None and addr.get("prop_value"):
+                rec["amount"] = addr["prop_value"]
+        return rec
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        list(ex.map(worker, records))
+
+    named     = sum(1 for r in records if r.get("owner"))
+    addressed = sum(1 for r in records if r.get("prop_address"))
+    amounted  = sum(1 for r in records if r.get("amount"))
+    log.info(f"Enriched: {named} names | {addressed} addresses | {amounted} amounts")
+    return records
+
+
+# ── Scoring ────────────────────────────────────────────────────────
+
+def score(rec, all_r):
+    s, flags = 0, []
+    amt   = rec.get("amount")
+    owner = rec.get("owner", "")
+    filed = rec.get("filed", "")
+    lbl   = rec.get("cat_label", "").lower()
+
+    if "trustees sale" in lbl or "foreclosure" in lbl:
+        flags.append("Foreclosure"); s += 25
+    elif "tax deed" in lbl:
+        flags.append("Tax Deed"); s += 25
+    elif "lis pendens" in lbl:
+        flags.append("Lis Pendens"); s += 20
+    elif "federal tax" in lbl:
+        flags.append("Federal Tax Lien"); s += 20
+    elif "judgment" in lbl:
+        flags.append("Judgment"); s += 15
+    elif "probate" in lbl:
+        flags.append("Probate"); s += 15
+    elif "state tax" in lbl:
+        flags.append("State Tax Lien"); s += 15
+    elif "mechanic" in lbl:
+        flags.append("Mechanic Lien"); s += 10
+    elif "medical" in lbl:
+        flags.append("Medical Lien"); s += 5
+
+    if owner and any(k in owner.upper() for k in ("LLC","INC","CORP","TRUST","ESTATE","LP ","LLP")):
+        flags.append("LLC / corp owner"); s += 10
+
+    try:
+        age = (datetime.now().date() - datetime.strptime(filed, "%Y-%m-%d").date()).days
+        if age <= 3:
+            flags.append("New (last 3 days)"); s += 15
+        elif age <= 7:
+            flags.append("New this week"); s += 10
+    except Exception:
+        pass
+
+    if amt:
+        if amt >= 200_000:
+            flags.append(f"High debt ${amt:,.0f}"); s += 20
+        elif amt >= 100_000:
+            flags.append(f"Debt ${amt:,.0f}"); s += 15
+        elif amt >= 50_000:
+            flags.append(f"Debt ${amt:,.0f}"); s += 10
+        elif amt > 0:
+            flags.append(f"Debt ${amt:,.0f}"); s += 5
+
+    if rec.get("prop_address") or rec.get("mail_address"):
+        flags.append("Address found"); s += 5
+
+    return min(s, 100), list(dict.fromkeys(flags))
+
+
+# ── Helpers ────────────────────────────────────────────────────────
+
+def _nd(raw):
+    raw = str(raw).strip()
+    for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m/%d/%y", "%m-%d-%Y", "%m-%d-%y"):
+        try: return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+        except: pass
+    return raw
+
+
+def _pa(raw):
+    c = re.sub(r"[^\d.]", "", str(raw or ""))
+    try:
+        v = float(c); return v if v > 0 else None
+    except: return None
+
+
+def _sn(full):
+    n = full.strip()
+    if any(k in n.upper() for k in ("LLC","INC","CORP","TRUST","ESTATE","ASSOC","HOA")):
+        return "", n
+    if "," in n:
+        p = [x.strip() for x in n.split(",", 1)]; return p[1], p[0]
+    w = n.split()
+    return (" ".join(w[1:]), " ".join(w[:1])) if len(w) >= 2 else ("", n)
+
+
+# ── Save / Export ──────────────────────────────────────────────────
+
+def save_json(records, dfrom, dto):
+    payload = {
+        "fetched_at":   datetime.now(timezone.utc).isoformat(),
+        "source":       "Maricopa County Recorder",
+        "date_range":   {"from": dfrom, "to": dto},
+        "total":        len(records),
+        "with_address": sum(1 for r in records if r.get("prop_address") or r.get("mail_address")),
+        "records":      records,
     }
-    return true;
-  });
+    for path in (DASHBOARD_JSON, DATA_JSON):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, default=str))
+        log.info(f"Saved {len(records)} -> {path}")
 
-  // Sort
-  filtered.sort((a, b) => {
-    let av = a[sortCol], bv = b[sortCol];
-    if (sortCol === "amount") { av = av ?? -1; bv = bv ?? -1; }
-    if (av == null) av = "";
-    if (bv == null) bv = "";
-    if (av < bv) return sortDir;
-    if (av > bv) return -sortDir;
-    return 0;
-  });
 
-  currentPage = 1;
-  render();
-}
+def export_csv(records, dto):
+    out = REPO_ROOT / "data" / f"ghl_export_{dto.replace('-','')}.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fields = [
+        "First Name","Last Name",
+        "Mailing Address","Mailing City","Mailing State","Mailing Zip",
+        "Property Address","Property City","Property State","Property Zip",
+        "Lead Type","Document Type","Date Filed","Document Number",
+        "Amount/Debt Owed","Seller Score","Motivated Seller Flags",
+        "Source","Public Records URL",
+    ]
+    with open(out, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        for rec in records:
+            fn, ln = _sn(rec.get("owner",""))
+            w.writerow({
+                "First Name": fn, "Last Name": ln,
+                "Mailing Address":  rec.get("mail_address",""),
+                "Mailing City":     rec.get("mail_city",""),
+                "Mailing State":    rec.get("mail_state","AZ"),
+                "Mailing Zip":      rec.get("mail_zip",""),
+                "Property Address": rec.get("prop_address",""),
+                "Property City":    rec.get("prop_city",""),
+                "Property State":   rec.get("prop_state","AZ"),
+                "Property Zip":     rec.get("prop_zip",""),
+                "Lead Type":        rec.get("cat_label",""),
+                "Document Type":    rec.get("doc_type",""),
+                "Date Filed":       rec.get("filed",""),
+                "Document Number":  rec.get("doc_num",""),
+                "Amount/Debt Owed": rec.get("amount",""),
+                "Seller Score":     rec.get("score",""),
+                "Motivated Seller Flags": " | ".join(rec.get("flags",[])),
+                "Source":           "Maricopa County Recorder",
+                "Public Records URL": rec.get("clerk_url",""),
+            })
+    log.info(f"CSV -> {out}")
 
-// ── Render table ──────────────────────────────────────────────────
-function render() {
-  const start = (currentPage - 1) * PAGE_SIZE;
-  const slice = filtered.slice(start, start + PAGE_SIZE);
-  const tbody = document.getElementById("tableBody");
 
-  if (!slice.length) {
-    tbody.innerHTML = `<tr><td colspan="9">
-      <div class="empty">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/>
-        </svg>
-        <p>No records match your filters.</p>
-      </div></td></tr>`;
-    renderPagination();
-    return;
-  }
+# ── Main ───────────────────────────────────────────────────────────
 
-  tbody.innerHTML = slice.map(r => {
-    const scoreClass = r.score >= 70 ? "score-high" : r.score >= 50 ? "score-med" : "score-low";
-    const docClass   = "doc-" + (["LP","NOFC","TAXDEED","JUD","LN","PRO"].includes(r.doc_type) ? r.doc_type : "");
-    const propAddr   = [r.prop_address, r.prop_city, r.prop_state, r.prop_zip].filter(Boolean).join(", ");
-    const mailAddr   = [r.mail_address, r.mail_city, r.mail_state, r.mail_zip].filter(Boolean).join(", ");
-    const flags      = (r.flags || []).map(f => `<span class="flag-chip">${esc(f)}</span>`).join("");
-    const amount     = r.amount != null ? "$" + Number(r.amount).toLocaleString() : "—";
-    const docLink    = r.clerk_url
-      ? `<a href="${esc(r.clerk_url)}" target="_blank" rel="noopener">${esc(r.doc_num)}</a>`
-      : esc(r.doc_num) || "—";
+def main():
+    today     = datetime.now().date()
+    dto_iso   = today.strftime("%Y-%m-%d")
+    dfrom_iso = (today - timedelta(days=7)).strftime("%Y-%m-%d")
 
-    return `<tr>
-      <td><span class="score-pill ${scoreClass}">${r.score}</span></td>
-      <td><span class="doc-badge ${docClass}">${esc(r.doc_type)}</span><br>
-          <span style="font-size:.68rem;color:#64748b">${esc(r.cat_label||"")}</span></td>
-      <td style="white-space:nowrap;color:#94a3b8">${esc(r.filed||"—")}</td>
-      <td class="owner-cell" title="${esc(r.owner||"")}">${esc(truncate(r.owner,28))}</td>
-      <td class="addr-cell">${esc(propAddr) || '<span style="color:#475569">—</span>'}</td>
-      <td class="addr-cell">${esc(mailAddr) || '<span style="color:#475569">—</span>'}</td>
-      <td class="amount-cell">${amount}</td>
-      <td class="flags-cell">${flags || '<span style="color:#475569;font-size:.72rem">none</span>'}</td>
-      <td style="white-space:nowrap;font-size:.75rem">${docLink}</td>
-    </tr>`;
-  }).join("");
+    log.info("=== Maricopa Motivated Seller Scraper ===")
+    log.info(f"Date range: {dfrom_iso} -> {dto_iso}")
+    _probe_assessor()
 
-  renderPagination();
-}
+    raw = scrape_all(dfrom_iso, dto_iso)
+    log.info(f"Raw records: {len(raw)}")
 
-function renderPagination() {
-  const total = filtered.length;
-  const pages = Math.ceil(total / PAGE_SIZE);
-  const start = (currentPage - 1) * PAGE_SIZE + 1;
-  const end   = Math.min(currentPage * PAGE_SIZE, total);
+    enrich_names(raw)
 
-  document.getElementById("pageInfo").textContent =
-    total ? `Showing ${start}–${end} of ${total.toLocaleString()} records` : "No records";
+    final = []
+    for rec in raw:
+        try:
+            s, fl = score(rec, raw)
+            rec["score"] = s; rec["flags"] = fl
+            final.append(rec)
+        except Exception as e:
+            log.error(f"Score error: {e}")
 
-  const container = document.getElementById("pageBtns");
-  container.innerHTML = "";
+    final.sort(key=lambda r: r.get("score", 0), reverse=True)
+    save_json(final, dfrom_iso, dto_iso)
+    export_csv(final, dto_iso)
+    log.info(f"=== DONE: {len(final)} leads ===")
 
-  if (pages <= 1) return;
 
-  const mkBtn = (label, page, active) => {
-    const b = document.createElement("button");
-    b.textContent = label;
-    if (active) b.classList.add("active");
-    b.disabled = page < 1 || page > pages;
-    b.onclick = () => { currentPage = page; render(); };
-    return b;
-  };
-
-  container.appendChild(mkBtn("«", 1, false));
-  container.appendChild(mkBtn("‹", currentPage - 1, false));
-
-  let lo = Math.max(1, currentPage - 2);
-  let hi = Math.min(pages, lo + 4);
-  lo = Math.max(1, hi - 4);
-  for (let p = lo; p <= hi; p++) container.appendChild(mkBtn(p, p, p === currentPage));
-
-  container.appendChild(mkBtn("›", currentPage + 1, false));
-  container.appendChild(mkBtn("»", pages, false));
-}
-
-// ── CSV Export (GHL format) ───────────────────────────────────────
-function exportCSV() {
-  const cols = [
-    "First Name","Last Name",
-    "Mailing Address","Mailing City","Mailing State","Mailing Zip",
-    "Property Address","Property City","Property State","Property Zip",
-    "Lead Type","Document Type","Date Filed","Document Number",
-    "Amount/Debt Owed","Seller Score","Motivated Seller Flags",
-    "Source","Public Records URL",
-  ];
-
-  const rows = [cols];
-  for (const r of filtered) {
-    const [first, last] = splitName(r.owner || "");
-    rows.push([
-      first, last,
-      r.mail_address||"", r.mail_city||"", r.mail_state||"AZ", r.mail_zip||"",
-      r.prop_address||"", r.prop_city||"", r.prop_state||"AZ", r.prop_zip||"",
-      r.cat_label||"", r.doc_type||"", r.filed||"", r.doc_num||"",
-      r.amount != null ? r.amount : "",
-      r.score||"",
-      (r.flags||[]).join(" | "),
-      "Maricopa County Clerk of Court",
-      r.clerk_url||"",
-    ]);
-  }
-
-  const csv = rows.map(row =>
-    row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(",")
-  ).join("\n");
-
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const a    = document.createElement("a");
-  a.href     = URL.createObjectURL(blob);
-  a.download = `ghl_export_${new Date().toISOString().slice(0,10)}.csv`;
-  a.click();
-}
-
-// ── Helpers ───────────────────────────────────────────────────────
-function splitName(full) {
-  const upper = ["LLC","INC","CORP","TRUST","ESTATE","LP","LLP"];
-  if (upper.some(kw => full.toUpperCase().includes(kw))) return ["", full];
-  if (full.includes(",")) {
-    const [l, f] = full.split(",", 2);
-    return [f.trim(), l.trim()];
-  }
-  const w = full.split(" ");
-  if (w.length < 2) return ["", full];
-  return [w[0], w.slice(1).join(" ")];
-}
-function esc(s) {
-  return String(s||"")
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;");
-}
-function truncate(s, n) {
-  s = s || "";
-  return s.length > n ? s.slice(0, n) + "…" : s;
-}
-
-// ── Event listeners ───────────────────────────────────────────────
-["searchBox","filterType","filterScore","filterAddr","sortBy"].forEach(id => {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener("input", applyFilters);
-});
-
-document.getElementById("sortBy").addEventListener("change", e => {
-  const v = e.target.value;
-  sortCol = v;
-  sortDir = (v === "owner") ? 1 : -1;
-  applyFilters();
-});
-
-document.querySelectorAll("thead th[data-col]").forEach(th => {
-  th.addEventListener("click", () => {
-    const col = th.dataset.col;
-    if (sortCol === col) { sortDir = -sortDir; }
-    else { sortCol = col; sortDir = -1; }
-    document.querySelectorAll("thead th").forEach(t => t.classList.remove("sorted"));
-    th.classList.add("sorted");
-    th.querySelector(".sort-icon").textContent = sortDir === -1 ? "▼" : "▲";
-    applyFilters();
-  });
-});
-
-document.getElementById("btnExport").addEventListener("click", exportCSV);
-document.getElementById("btnRefresh").addEventListener("click", loadData);
-
-// ── Init ──────────────────────────────────────────────────────────
-loadData();
-</script>
-</body>
-</html>
+if __name__ == "__main__":
+    main()
