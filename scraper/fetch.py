@@ -292,13 +292,10 @@ def _parse_gis_json(data, label=""):
     for vk in ("FCV_CUR", "SALE_PRICE", "LPV_CUR"):
         v = attrs.get(vk)
         if v and str(v).strip() not in ("", "0", "None", "null"):
-            try:
-                fv = float(str(v))
-                if fv > 0:
-                    prop_value = fv
-                    break
-            except Exception:
-                pass
+            fv = _pa(str(v))  # handles "99,400" or "  99400  " etc.
+            if fv and fv > 0:
+                prop_value = fv
+                break
 
     result = {}
     if addr:
