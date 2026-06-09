@@ -260,30 +260,45 @@ def _parse_gis_json(data, label=""):
         return {}
     attrs = features[0].get("attributes", {})
 
-    # Physical/situs address — built from parts (confirmed field names from probe)
-    num  = str(attrs.get("PHYSICAL_STREET_NUM") or "").strip()
-    dir_ = str(attrs.get("PHYSICAL_STREET_DIR") or "").strip()
-    name = str(attrs.get("PHYSICAL_STREET_NAME") or "").strip()
-    typ  = str(attrs.get("PHYSICAL_STREET_TYPE") or attrs.get("PHYSICAL_STREET_T") or "").strip()
-    addr = " ".join(filter(None, [num, dir_, name, typ])).strip()
-    # Also try legacy single-field names as fallback
+    # Physical address — try pre-built field first, then build from parts
+    addr = str(attrs.get("PHYSICAL_ADDRESS") or "").strip()
     if not addr:
-        addr = (attrs.get("SITUS_ADDR") or attrs.get("SITE_ADDR") or
-                attrs.get("ADDRESS") or "").strip()
-    city    = str(attrs.get("PHYSICAL_CITY") or attrs.get("SITUS_CITY") or
-                  attrs.get("SITE_CITY") or "").strip()
-    zipcode = str(attrs.get("PHYSICAL_ZIP") or attrs.get("SITUS_ZIP") or
-                  attrs.get("SITE_ZIP") or "").strip().split(".")[0]
+        num  = str(attrs.get("PHYSICAL_STREET_NUM") or "").strip()
+        dir_ = str(attrs.get("PHYSICAL_STREET_DIR") or "").strip()
+        name = str(attrs.get("PHYSICAL_STREET_NAME") or "").strip()
+        typ  = str(attrs.get("PHYSICAL_STREET_TYPE") or "").strip()
+        suf  = str(attrs.get("PHYSICAL_STREET_SUFFIX") or "").strip()
+        addr = " ".join(filter(None, [num, dir_, name, typ, suf])).strip()
+    # Legacy fallback
+    if not addr:
+        addr = (attrs.get("SITUS_ADDR") or attrs.get("SITE_ADDR") or "").strip()
+    city    = str(attrs.get("PHYSICAL_CITY") or attrs.get("SITUS_CITY") or "").strip()
+    zipcode = str(attrs.get("PHYSICAL_ZIP") or attrs.get("SITUS_ZIP") or "").strip().split(".")[0]
 
-    # Mailing address (confirmed field names from probe)
-    mail_addr  = str(attrs.get("MAIL_ADDR1") or attrs.get("MAIL_ADDR") or
-                     attrs.get("MAILING_ADDR") or "").strip()
+    # Mailing address — try pre-built MAIL_ADDRESS first, then individual fields
+    mail_full  = str(attrs.get("MAIL_ADDRESS") or "").strip()
+    mail_addr  = str(attrs.get("MAIL_ADDR1") or attrs.get("MAIL_ADDR") or "").strip()
     mail_addr2 = str(attrs.get("MAIL_ADDR2") or "").strip()
-    if mail_addr2:
+    if not mail_addr and mail_full:
+        mail_addr = mail_full  # use combined as fallback
+    elif mail_addr2:
         mail_addr = f"{mail_addr} {mail_addr2}".strip()
     mail_city  = str(attrs.get("MAIL_CITY") or "").strip()
     mail_state = str(attrs.get("MAIL_STATE") or "AZ").strip()
     mail_zip   = str(attrs.get("MAIL_ZIP") or "").strip().split(".")[0]
+
+    # Property value from assessor (FCV = Full Cash Value, fallback to sale price)
+    prop_value = None
+    for vk in ("FCV_CUR", "SALE_PRICE", "LPV_CUR"):
+        v = attrs.get(vk)
+        if v and str(v).strip() not in ("", "0", "None", "null"):
+            try:
+                fv = float(str(v))
+                if fv > 0:
+                    prop_value = fv
+                    break
+            except Exception:
+                pass
 
     result = {}
     if addr:
@@ -295,6 +310,8 @@ def _parse_gis_json(data, label=""):
         result["mail_city"]    = mail_city
         result["mail_state"]   = mail_state
         result["mail_zip"]     = mail_zip
+    if prop_value:
+        result["prop_value"] = prop_value
     return result
 
 
@@ -379,6 +396,9 @@ def enrich_names(records, workers=8):
             addr = fetch_assessor_by_name(name)
         if addr:
             rec.update(addr)
+            # Use assessed property value as amount if recorder didn't provide one
+            if rec.get("amount") is None and addr.get("prop_value"):
+                rec["amount"] = addr["prop_value"]
         return rec
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
