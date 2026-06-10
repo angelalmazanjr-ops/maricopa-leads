@@ -34,11 +34,17 @@ jobs:
           PYTHONUNBUFFERED: "1"
           SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
 
+      - name: Push leads to GoHighLevel CRM
+        env:
+          GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python scraper/push_to_ghl.py
+
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull origin main || true
-          git add dashboard/records.json data/records.json data/*.csv || true
+          git add dashboard/records.json data/records.json data/*.csv dashboard/.ghl_initialized || true
           if git diff --cached --quiet; then echo "no changes"; else git commit -m "update leads" && git push; fi
 
   deploy-pages:
