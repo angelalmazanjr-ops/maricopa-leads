@@ -43,9 +43,9 @@ jobs:
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull origin main || true
+          git pull --rebase origin main || true
           git add dashboard/records.json data/records.json data/*.csv dashboard/.ghl_initialized || true
-          if git diff --cached --quiet; then echo "no changes"; else git commit -m "update leads" && git push; fi
+          if git diff --cached --quiet; then echo "no changes"; else git commit -m "update leads" && git push || echo "push failed, will retry next run"; fi
 
   deploy-pages:
     name: Deploy Dashboard to GitHub Pages
