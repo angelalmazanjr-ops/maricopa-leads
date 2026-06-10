@@ -1,5 +1,5 @@
 {
-  "fetched_at": "2026-06-10T04:46:34.920959+00:00",
+  "fetched_at": "2026-06-10T06:32:44.430975+00:00",
   "source": "Maricopa County Recorder",
   "date_range": {
     "from": "2026-06-03",
@@ -18003,30 +18003,6 @@
       ]
     },
     {
-      "doc_num": "20260345040",
-      "doc_type": "JUD",
-      "cat": "JG",
-      "cat_label": "Judgment",
-      "filed": "2026-06-08",
-      "owner": "ENRIQUEZ CESAR",
-      "grantee": "SNAP ON CREDIT LLC",
-      "amount": null,
-      "clerk_url": "https://recorder.maricopa.gov/recording/document-search-results.html?recordingNumber=20260345040",
-      "prop_address": "",
-      "prop_city": "",
-      "prop_state": "AZ",
-      "prop_zip": "",
-      "mail_address": "",
-      "mail_city": "",
-      "mail_state": "AZ",
-      "mail_zip": "",
-      "score": 30,
-      "flags": [
-        "Judgment",
-        "New (last 3 days)"
-      ]
-    },
-    {
       "doc_num": "20260345041",
       "doc_type": "JUD",
       "cat": "JG",
@@ -18132,6 +18108,30 @@
       "grantee": "NCB MANAGEMENT SERVICES",
       "amount": null,
       "clerk_url": "https://recorder.maricopa.gov/recording/document-search-results.html?recordingNumber=20260345046",
+      "prop_address": "",
+      "prop_city": "",
+      "prop_state": "AZ",
+      "prop_zip": "",
+      "mail_address": "",
+      "mail_city": "",
+      "mail_state": "AZ",
+      "mail_zip": "",
+      "score": 30,
+      "flags": [
+        "Judgment",
+        "New (last 3 days)"
+      ]
+    },
+    {
+      "doc_num": "20260345048",
+      "doc_type": "JUD",
+      "cat": "JG",
+      "cat_label": "Judgment",
+      "filed": "2026-06-08",
+      "owner": "BECKMAN GREGORY A",
+      "grantee": "FIFTH THIRD BANK",
+      "amount": null,
+      "clerk_url": "https://recorder.maricopa.gov/recording/document-search-results.html?recordingNumber=20260345048",
       "prop_address": "",
       "prop_city": "",
       "prop_state": "AZ",
@@ -28662,7 +28662,7 @@
       "doc_type": "JUD",
       "cat": "JG",
       "cat_label": "Judgment",
-      "filed": "2000-02-16",
+      "filed": "2007-06-14",
       "owner": "OSORIO OMAR",
       "grantee": "UNITED AUTO CREDIT CORPORATION",
       "amount": null,
@@ -28681,15 +28681,15 @@
       ]
     },
     {
-      "doc_num": "20260345048",
+      "doc_num": "20260345040",
       "doc_type": "JUD",
       "cat": "JG",
       "cat_label": "Judgment",
-      "filed": "2004-11-16",
-      "owner": "BECKMAN GREGORY A",
-      "grantee": "FIFTH THIRD BANK",
+      "filed": "2011-06-08",
+      "owner": "ENRIQUEZ CESAR",
+      "grantee": "SNAP ON CREDIT LLC",
       "amount": null,
-      "clerk_url": "https://recorder.maricopa.gov/recording/document-search-results.html?recordingNumber=20260345048",
+      "clerk_url": "https://recorder.maricopa.gov/recording/document-search-results.html?recordingNumber=20260345040",
       "prop_address": "",
       "prop_city": "",
       "prop_state": "AZ",
