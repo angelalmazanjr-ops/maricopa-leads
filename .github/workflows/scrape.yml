@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install requests beautifulsoup4 lxml
+      - run: pip install requests beautifulsoup4 lxml selenium webdriver-manager
 
       - run: python scraper/fetch.py
         env:
