@@ -82,8 +82,8 @@ def create_contact(rec) -> tuple:
     first, last = split_name(rec.get("owner", ""))
     payload = {
         "locationId": LOCATION_ID,
-        "firstName":  first or "Unknown",
-        "lastName":   last  or "Lead",
+        "firstName": first or last or "Unknown",
+        "lastName": last if first else "Lead",
         "name":       (rec.get("owner", "") or "Unknown Lead").title(),
         "address1":   rec.get("mail_address") or rec.get("prop_address") or "",
         "city":       rec.get("mail_city")    or rec.get("prop_city")    or "",
