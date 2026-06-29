@@ -228,7 +228,7 @@ def fetch_assessor_by_apn(apn):
             params={"where": f"APN='{apn_fmt}'", "outFields": "*",
                     "resultRecordCount": 1, "f": "json"},
             headers={"User-Agent": HEADERS["User-Agent"]},
-            timeout=15,
+            timeout=30,
         )
         if resp.status_code == 200:
             return _parse_gis_json(resp.json(), f"GIS-APN:{apn_fmt}")
@@ -260,7 +260,7 @@ def fetch_assessor_by_name(name):
             ASSESSOR_GEO,
             params={"where": where, "outFields": "*", "resultRecordCount": 1, "f": "json"},
             headers={"User-Agent": HEADERS["User-Agent"]},
-            timeout=15,
+            timeout=30,
         )
         if resp.status_code == 200:
             return _parse_gis_json(resp.json(), f"GIS-NAME:{name[:25]}")
@@ -430,7 +430,7 @@ def main():
     _probe_assessor()
     raw = scrape_all(dfrom_iso, dto_iso)
     log.info(f"Raw records: {len(raw)}")
-    enrich_names(raw)
+    enrich_names(raw, workers=2)
     final = []
     for rec in raw:
         try:
