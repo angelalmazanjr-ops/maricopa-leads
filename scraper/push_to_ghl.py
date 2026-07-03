@@ -2,12 +2,7 @@
 """
 push_to_ghl.py
 Pushes Maricopa County leads to GoHighLevel as contacts.
-
-First run  → pushes ALL records (no marker file present)
-Daily runs → pushes only records filed in the last 24 hours
-
-Env vars required:
-  GHL_API_KEY   – Private Integration token (pit-...)
+Checks for duplicates by doc number before creating new contacts.
 """
 
 import json, os, sys, time
@@ -15,13 +10,12 @@ from datetime import datetime, timedelta
 
 import requests
 
-# ── Config ────────────────────────────────────────────────────────
 GHL_API_KEY   = os.environ["GHL_API_KEY"]
 LOCATION_ID   = "CvMj40VHe3Z9at2VihbU"
 BASE_URL      = "https://services.leadconnectorhq.com"
 TAGS          = ["Ai Motivated Seller Leads", "Maricopa County"]
-RATE_SLEEP    = 0.25        # seconds between API calls (~4 req/s)
-MARKER_FILE   = "dashboard/.ghl_initialized"   # created after first run
+RATE_SLEEP    = 0.25
+MARKER_FILE   = "dashboard/.ghl_initialized"
 RECORDS_FILE  = "dashboard/records.json"
 
 HEADERS = {
@@ -31,7 +25,6 @@ HEADERS = {
     "Accept":         "application/json",
 }
 
-# ── Helpers ───────────────────────────────────────────────────────
 def split_name(full: str):
     full = (full or "").strip()
     if not full:
@@ -46,7 +39,6 @@ def split_name(full: str):
     return parts[0].title(), " ".join(parts[1:]).title() if len(parts) > 1 else ""
 
 def is_new(rec) -> bool:
-    """Filed within the last 24 hours (for daily incremental runs)."""
     filed = (rec.get("filed") or "").strip()
     if not filed:
         return False
@@ -71,19 +63,40 @@ def build_note(rec) -> str:
             f"Property   : {rec['prop_address']}, "
             f"{rec.get('prop_city','')}, {rec.get('prop_state','AZ')} {rec.get('prop_zip','')}"
         )
+    if rec.get("mail_address"):
+        lines.append(
+            f"Mailing    : {rec['mail_address']}, "
+            f"{rec.get('mail_city','')}, {rec.get('mail_state','AZ')} {rec.get('mail_zip','')}"
+        )
     if rec.get("flags"):
         lines.append(f"Flags      : {', '.join(rec['flags'])}")
     if rec.get("clerk_url"):
         lines.append(f"Clerk Link : {rec['clerk_url']}")
     return "\n".join(lines)
 
-# ── API calls ─────────────────────────────────────────────────────
+def search_contact_by_doc(doc_num: str):
+    """Search GHL for existing contact with this doc number in notes."""
+    try:
+        r = requests.get(
+            f"{BASE_URL}/contacts/search",
+            headers=HEADERS,
+            params={"locationId": LOCATION_ID, "query": doc_num, "limit": 1},
+            timeout=15,
+        )
+        if r.status_code == 200:
+            contacts = r.json().get("contacts", [])
+            if contacts:
+                return contacts[0].get("id")
+    except Exception:
+        pass
+    return None
+
 def create_contact(rec) -> tuple:
     first, last = split_name(rec.get("owner", ""))
     payload = {
         "locationId": LOCATION_ID,
-        "firstName": first or last or "Unknown",
-        "lastName": last if first else "Lead",
+        "firstName":  first or last or "Unknown",
+        "lastName":   last if first else "Lead",
         "name":       (rec.get("owner", "") or "Unknown Lead").title(),
         "address1":   rec.get("mail_address") or rec.get("prop_address") or "",
         "city":       rec.get("mail_city")    or rec.get("prop_city")    or "",
@@ -111,8 +124,19 @@ def add_note(contact_id: str, body: str) -> bool:
     return r.status_code in (200, 201)
 
 def push_batch(records: list) -> tuple:
-    pushed, errors = 0, 0
+    pushed, skipped, errors = 0, 0, 0
     for i, rec in enumerate(records, 1):
+        doc_num = rec.get("doc_num", "")
+
+        # Check for duplicate
+        existing_id = search_contact_by_doc(doc_num)
+        time.sleep(RATE_SLEEP)
+
+        if existing_id:
+            skipped += 1
+            print(f"  [{i}/{len(records)}] SKIP {doc_num} | already exists")
+            continue
+
         contact_id, status = create_contact(rec)
         time.sleep(RATE_SLEEP)
 
@@ -122,14 +146,13 @@ def push_batch(records: list) -> tuple:
             pushed += 1
             owner = (rec.get("owner") or "?")[:30]
             note_mark = "ok" if note_ok else "note-err"
-            print(f"  [{i}/{len(records)}] OK {rec.get('doc_num')} | {owner} | note:{note_mark}")
+            print(f"  [{i}/{len(records)}] OK {doc_num} | {owner} | note:{note_mark}")
         else:
             errors += 1
-            print(f"  [{i}/{len(records)}] ERR {rec.get('doc_num')} | {status}")
+            print(f"  [{i}/{len(records)}] ERR {doc_num} | {status}")
 
-    return pushed, errors
+    return pushed, skipped, errors
 
-# ── Main ──────────────────────────────────────────────────────────
 def main():
     if not os.path.exists(RECORDS_FILE):
         print(f"ERROR: {RECORDS_FILE} not found"); sys.exit(1)
@@ -152,7 +175,7 @@ def main():
         open(MARKER_FILE, "w").write(datetime.utcnow().isoformat())
         return
 
-    pushed, errors = push_batch(to_push)
+    pushed, skipped, errors = push_batch(to_push)
 
     if first_run:
         with open(MARKER_FILE, "w") as f:
@@ -160,7 +183,7 @@ def main():
         print(f"\nMarker file written - future runs will be incremental.")
 
     print(f"\n{'='*50}")
-    print(f"Pushed: {pushed}  Errors: {errors}")
+    print(f"Pushed: {pushed}  Skipped: {skipped}  Errors: {errors}")
 
 if __name__ == "__main__":
     main()
