@@ -2,7 +2,20 @@
 """
 push_to_ghl.py
 Pushes Maricopa County leads to GoHighLevel as contacts.
+
 Checks for duplicates by doc number before creating new contacts.
+
+IMPORTANT: Maricopa County's recorder API attaches grantor/grantee names to
+Notice of Trustee's Sale (NS) and Liens (LN) documents 1-3 days AFTER the
+document is first recorded. A record that shows up with an empty "owner"
+today may have a real name in 1-3 days once fetch.py re-scrapes it on a
+later run (fetch.py always re-checks a rolling 7-day window).
+
+So instead of only looking at "new in the last 24h," this script re-checks
+every record filed in the last RECHECK_WINDOW_DAYS days. If a contact
+already exists in GHL for that doc_num but is still a placeholder ("Unknown
+Lead"), and the record now has a real name, the contact gets updated in
+place rather than skipped.
 """
 
 import json, os, sys, time
@@ -18,12 +31,19 @@ RATE_SLEEP    = 0.25
 MARKER_FILE   = "dashboard/.ghl_initialized"
 RECORDS_FILE  = "dashboard/records.json"
 
+# How many days back to keep re-checking a record for a resolved name.
+# Observed lag on N/TR SALE and Liens docs is 1-3 days; 5 gives buffer.
+RECHECK_WINDOW_DAYS = 5
+
 HEADERS = {
     "Authorization": f"Bearer {GHL_API_KEY}",
     "Version":        "2021-07-28",
     "Content-Type":   "application/json",
     "Accept":         "application/json",
 }
+
+PLACEHOLDER_NAMES = {"", "unknown", "unknown lead"}
+
 
 def split_name(full: str):
     full = (full or "").strip()
@@ -38,18 +58,23 @@ def split_name(full: str):
     parts = full.split()
     return parts[0].title(), " ".join(parts[1:]).title() if len(parts) > 1 else ""
 
-def is_new(rec) -> bool:
+
+def is_in_window(rec, days: int) -> bool:
     filed = (rec.get("filed") or "").strip()
     if not filed:
         return False
     try:
         d = datetime.strptime(filed, "%Y-%m-%d").date()
-        return d >= (datetime.utcnow() - timedelta(hours=24)).date()
+        return d >= (datetime.utcnow() - timedelta(days=days)).date()
     except Exception:
         return False
 
-def build_note(rec) -> str:
-    lines = [
+
+def build_note(rec, resolved: bool = False) -> str:
+    lines = []
+    if resolved:
+        lines.append(f"[Name resolved {datetime.utcnow().strftime('%Y-%m-%d')}]")
+    lines += [
         f"Maricopa County Lead - {rec.get('cat_label', '')}",
         f"Doc Type   : {rec.get('doc_type', '')}",
         f"Doc Number : {rec.get('doc_num', '')}",
@@ -74,8 +99,10 @@ def build_note(rec) -> str:
         lines.append(f"Clerk Link : {rec['clerk_url']}")
     return "\n".join(lines)
 
+
 def search_contact_by_doc(doc_num: str):
-    """Search GHL for existing contact with this doc number in notes."""
+    """Search GHL for existing contact with this doc number in notes.
+    Returns (contact_id, current_name) or (None, None)."""
     try:
         r = requests.get(
             f"{BASE_URL}/contacts/search",
@@ -86,10 +113,12 @@ def search_contact_by_doc(doc_num: str):
         if r.status_code == 200:
             contacts = r.json().get("contacts", [])
             if contacts:
-                return contacts[0].get("id")
+                c = contacts[0]
+                return c.get("id"), (c.get("name") or c.get("firstName") or "")
     except Exception:
         pass
-    return None
+    return None, None
+
 
 def create_contact(rec) -> tuple:
     first, last = split_name(rec.get("owner", ""))
@@ -114,6 +143,25 @@ def create_contact(rec) -> tuple:
         return contact_id, "ok"
     return None, f"HTTP {r.status_code}: {r.text[:120]}"
 
+
+def update_contact(contact_id: str, rec) -> bool:
+    """Rename a placeholder contact once a real owner name has resolved."""
+    first, last = split_name(rec.get("owner", ""))
+    payload = {
+        "firstName":  first or last or "Unknown",
+        "lastName":   last if first else "Lead",
+        "name":       (rec.get("owner", "") or "Unknown Lead").title(),
+        "address1":   rec.get("mail_address") or rec.get("prop_address") or "",
+        "city":       rec.get("mail_city")    or rec.get("prop_city")    or "",
+        "state":      rec.get("mail_state")   or rec.get("prop_state")   or "AZ",
+        "postalCode": rec.get("mail_zip")     or rec.get("prop_zip")     or "",
+    }
+    r = requests.put(
+        f"{BASE_URL}/contacts/{contact_id}", headers=HEADERS, json=payload, timeout=15
+    )
+    return r.status_code in (200, 201)
+
+
 def add_note(contact_id: str, body: str) -> bool:
     r = requests.post(
         f"{BASE_URL}/contacts/{contact_id}/notes",
@@ -123,18 +171,33 @@ def add_note(contact_id: str, body: str) -> bool:
     )
     return r.status_code in (200, 201)
 
+
 def push_batch(records: list) -> tuple:
-    pushed, skipped, errors = 0, 0, 0
+    pushed, updated, skipped, errors = 0, 0, 0, 0
     for i, rec in enumerate(records, 1):
         doc_num = rec.get("doc_num", "")
+        owner = (rec.get("owner") or "").strip()
 
-        # Check for duplicate
-        existing_id = search_contact_by_doc(doc_num)
+        existing_id, existing_name = search_contact_by_doc(doc_num)
         time.sleep(RATE_SLEEP)
 
         if existing_id:
-            skipped += 1
-            print(f"  [{i}/{len(records)}] SKIP {doc_num} | already exists")
+            is_placeholder = (existing_name or "").strip().lower() in PLACEHOLDER_NAMES
+            if is_placeholder and owner:
+                # Name has resolved since we last pushed this one - update it.
+                ok = update_contact(existing_id, rec)
+                time.sleep(RATE_SLEEP)
+                if ok:
+                    add_note(existing_id, build_note(rec, resolved=True))
+                    time.sleep(RATE_SLEEP)
+                    updated += 1
+                    print(f"  [{i}/{len(records)}] UPDATED {doc_num} | {owner[:30]}")
+                else:
+                    errors += 1
+                    print(f"  [{i}/{len(records)}] ERR (update) {doc_num}")
+            else:
+                skipped += 1
+                print(f"  [{i}/{len(records)}] SKIP {doc_num} | already exists")
             continue
 
         contact_id, status = create_contact(rec)
@@ -144,14 +207,14 @@ def push_batch(records: list) -> tuple:
             note_ok = add_note(contact_id, build_note(rec))
             time.sleep(RATE_SLEEP)
             pushed += 1
-            owner = (rec.get("owner") or "?")[:30]
             note_mark = "ok" if note_ok else "note-err"
-            print(f"  [{i}/{len(records)}] OK {doc_num} | {owner} | note:{note_mark}")
+            print(f"  [{i}/{len(records)}] OK {doc_num} | {owner or '?'} | note:{note_mark}")
         else:
             errors += 1
             print(f"  [{i}/{len(records)}] ERR {doc_num} | {status}")
 
-    return pushed, skipped, errors
+    return pushed, updated, skipped, errors
+
 
 def main():
     if not os.path.exists(RECORDS_FILE):
@@ -167,15 +230,19 @@ def main():
         print(f"FIRST RUN - pushing all {len(all_records)} records to GHL...")
         to_push = all_records
     else:
-        to_push = [r for r in all_records if is_new(r)]
-        print(f"Daily run - {len(to_push)} new leads (last 24h) of {len(all_records)} total")
+        to_push = [r for r in all_records if is_in_window(r, RECHECK_WINDOW_DAYS)]
+        print(
+            f"Daily run - {len(to_push)} records filed in the last "
+            f"{RECHECK_WINDOW_DAYS} days (of {len(all_records)} total) "
+            f"being pushed/rechecked"
+        )
 
     if not to_push:
         print("No leads to push today - done.")
         open(MARKER_FILE, "w").write(datetime.utcnow().isoformat())
         return
 
-    pushed, skipped, errors = push_batch(to_push)
+    pushed, updated, skipped, errors = push_batch(to_push)
 
     if first_run:
         with open(MARKER_FILE, "w") as f:
@@ -183,7 +250,8 @@ def main():
         print(f"\nMarker file written - future runs will be incremental.")
 
     print(f"\n{'='*50}")
-    print(f"Pushed: {pushed}  Skipped: {skipped}  Errors: {errors}")
+    print(f"Pushed: {pushed}  Updated: {updated}  Skipped: {skipped}  Errors: {errors}")
+
 
 if __name__ == "__main__":
     main()
