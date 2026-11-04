@@ -35,6 +35,7 @@ jobs:
           SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
 
       - name: Push leads to GoHighLevel CRM
+        if: false
         env:
           GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
           PYTHONUNBUFFERED: "1"
