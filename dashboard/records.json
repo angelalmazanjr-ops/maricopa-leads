@@ -1,9 +1,9 @@
 {
-  "fetched_at": "2026-11-14T14:11:22.463112+00:00",
+  "fetched_at": "2026-11-15T14:44:04.356174+00:00",
   "source": "Maricopa County Recorder",
   "date_range": {
-    "from": "2026-11-07",
-    "to": "2026-11-14"
+    "from": "2026-11-08",
+    "to": "2026-11-15"
   },
   "total": 1293,
   "with_address": 491,
@@ -2868,33 +2868,6 @@
         "LLC / corp owner",
         "New (last 3 days)",
         "Debt $191,000",
-        "Address found"
-      ]
-    },
-    {
-      "doc_num": "20260643169",
-      "doc_type": "TAXDEED",
-      "cat": "TD",
-      "cat_label": "Tax Deed",
-      "filed": "2026-11-09",
-      "owner": "GARIBALDI CEBREROS KICELA M",
-      "grantee": "LEONARD J MCDONALD",
-      "amount": 557200.0,
-      "clerk_url": "https://recorder.maricopa.gov/recording/document-search-results.html?recordingNumber=20260643169",
-      "prop_address": "5807 W DEL LAGO CIR   GLENDALE  85308",
-      "prop_city": "GLENDALE",
-      "prop_state": "AZ",
-      "prop_zip": "85308",
-      "mail_address": "5807 W DEL LAGO CIR",
-      "mail_city": "GLENDALE",
-      "mail_state": "AZ",
-      "mail_zip": "85308",
-      "prop_value": 557200.0,
-      "score": 60,
-      "flags": [
-        "Tax Deed",
-        "New this week",
-        "High debt $557,200",
         "Address found"
       ]
     },
@@ -7751,6 +7724,32 @@
         "Probate",
         "New (last 3 days)",
         "Debt $187,500",
+        "Address found"
+      ]
+    },
+    {
+      "doc_num": "20260643169",
+      "doc_type": "TAXDEED",
+      "cat": "TD",
+      "cat_label": "Tax Deed",
+      "filed": "2003-11-17",
+      "owner": "GARIBALDI CEBREROS KICELA M",
+      "grantee": "LEONARD J MCDONALD",
+      "amount": 557200.0,
+      "clerk_url": "https://recorder.maricopa.gov/recording/document-search-results.html?recordingNumber=20260643169",
+      "prop_address": "5807 W DEL LAGO CIR   GLENDALE  85308",
+      "prop_city": "GLENDALE",
+      "prop_state": "AZ",
+      "prop_zip": "85308",
+      "mail_address": "5807 W DEL LAGO CIR",
+      "mail_city": "GLENDALE",
+      "mail_state": "AZ",
+      "mail_zip": "85308",
+      "prop_value": 557200.0,
+      "score": 50,
+      "flags": [
+        "Tax Deed",
+        "High debt $557,200",
         "Address found"
       ]
     },
